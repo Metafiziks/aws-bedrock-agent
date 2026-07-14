@@ -40,6 +40,71 @@ resource "time_sleep" "wait_for_collection" {
   depends_on      = [aws_opensearchserverless_collection.kb, aws_opensearchserverless_access_policy.kb]
 }
 
+# Bedrock does NOT auto-create the vector index — we must pre-create it via HTTP.
+resource "null_resource" "create_os_index" {
+  depends_on = [time_sleep.wait_for_collection, aws_iam_role_policy.kb_s3]
+
+  triggers = {
+    collection_endpoint = aws_opensearchserverless_collection.kb.collection_endpoint
+  }
+
+  provisioner "local-exec" {
+    environment = {
+      COLLECTION_ENDPOINT = aws_opensearchserverless_collection.kb.collection_endpoint
+      AWS_REGION          = var.region
+    }
+    command = <<-SHELL
+      python3 << 'PYEOF'
+import os, boto3, json, http.client, ssl
+from urllib.parse import urlparse
+from botocore.auth import SigV4Auth
+from botocore.awsrequest import AWSRequest
+
+session = boto3.Session()
+creds = session.get_credentials().get_frozen_credentials()
+endpoint = os.environ["COLLECTION_ENDPOINT"]
+region = os.environ["AWS_REGION"]
+index = "bedrock-kb-index"
+url = endpoint + "/" + index
+
+body = json.dumps({
+    "settings": {"index": {"knn": True}},
+    "mappings": {
+        "properties": {
+            "bedrock-knowledge-base-default-vector": {
+                "type": "knn_vector",
+                "dimension": 1536,
+                "method": {"name": "hnsw", "engine": "faiss", "space_type": "l2"}
+            },
+            "AMAZON_BEDROCK_TEXT_CHUNK": {"type": "text"},
+            "AMAZON_BEDROCK_METADATA": {"type": "text", "index": False}
+        }
+    }
+}).encode("utf-8")
+
+req = AWSRequest(method="PUT", url=url, data=body, headers={"Content-Type": "application/json"})
+SigV4Auth(creds, "aoss", region).add_auth(req)
+p = urlparse(url)
+conn = http.client.HTTPSConnection(p.netloc, context=ssl.create_default_context())
+conn.request("PUT", "/" + index, body=body, headers=dict(req.headers))
+resp = conn.getresponse()
+data = resp.read().decode()
+print(resp.status, data)
+try:
+    err = json.loads(data).get("error", {})
+    if err.get("type") == "resource_already_exists_exception":
+        print("Index already exists, skipping")
+        exit(0)
+except Exception:
+    pass
+if resp.status not in (200, 201):
+    raise Exception("Index creation failed: " + data)
+print("Index created successfully")
+PYEOF
+    SHELL
+  }
+}
+
 # ── Bedrock Knowledge Base ──────────────────────────────────────────────────
 resource "aws_bedrockagent_knowledge_base" "docs" {
   name     = "${local.name}-kb"
@@ -66,6 +131,7 @@ resource "aws_bedrockagent_knowledge_base" "docs" {
   }
 
   depends_on = [
+    null_resource.create_os_index,
     aws_opensearchserverless_access_policy.kb,
     aws_opensearchserverless_collection.kb,
     time_sleep.wait_for_collection,
