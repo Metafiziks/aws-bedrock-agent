@@ -2,6 +2,10 @@ output "docs_bucket" {
   value = aws_s3_bucket.docs.bucket
 }
 
+output "collection_endpoint" {
+  value = aws_opensearchserverless_collection.kb.collection_endpoint
+}
+
 output "knowledge_base_id" {
   value = aws_bedrockagent_knowledge_base.docs.id
 }

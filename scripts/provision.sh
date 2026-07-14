@@ -1,11 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ACCOUNT_ID="${ACCOUNT_ID:?Set ACCOUNT_ID env var (your AWS account ID)}"
 ENV_NAME="${ENV_NAME:-search-agent}"
 REGION="${REGION:-us-east-1}"
-GITHUB_REPO="${GITHUB_REPO:?Set GITHUB_REPO (owner/repo)}"
-ALERT_EMAIL="${ALERT_EMAIL:?Set ALERT_EMAIL for budget alerts}"
 
 echo ""
 echo "=== Provision: Infrastructure + Knowledge Base Setup ==="
@@ -13,23 +10,43 @@ echo ""
 
 # --- Prerequisite check ---
 echo "► Checking prerequisites..."
-command -v aws   >/dev/null || { echo "ERROR: aws CLI not found. Install from https://aws.amazon.com/cli/"; exit 1; }
+command -v aws       >/dev/null || { echo "ERROR: aws CLI not found. Install from https://aws.amazon.com/cli/"; exit 1; }
 command -v terraform >/dev/null || { echo "ERROR: terraform not found. brew install hashicorp/tap/terraform"; exit 1; }
-aws sts get-caller-identity --query Account --output text >/dev/null || { echo "ERROR: Not authenticated. Run: aws configure sso OR aws configure"; exit 1; }
+command -v python3   >/dev/null || { echo "ERROR: python3 not found."; exit 1; }
+aws sts get-caller-identity --query Account --output text >/dev/null \
+  || { echo "ERROR: Not authenticated. Run: aws configure sso OR aws configure"; exit 1; }
 
 echo ""
 echo "┌─────────────────────────────────────────────────────────────────┐"
 echo ""
 
-# --- Terraform ---
-echo "► Provisioning infrastructure with Terraform..."
+TF_VARS="-var=region=${REGION} -var=env_name=${ENV_NAME}"
+
+# --- Stage 1: Create OpenSearch collection + IAM (no KB yet) ---
+echo "► Stage 1: Provisioning OpenSearch collection and IAM..."
 terraform -chdir=terraform init -upgrade -input=false -reconfigure
-terraform -chdir=terraform apply -auto-approve \
-  -var="account_id=${ACCOUNT_ID}" \
-  -var="region=${REGION}" \
-  -var="env_name=${ENV_NAME}" \
-  -var="github_repo=${GITHUB_REPO}" \
-  -var="alert_email=${ALERT_EMAIL}"
+terraform -chdir=terraform apply -auto-approve -input=false ${TF_VARS} \
+  -target=aws_opensearchserverless_security_policy.encryption \
+  -target=aws_opensearchserverless_security_policy.network \
+  -target=aws_opensearchserverless_access_policy.kb \
+  -target=aws_opensearchserverless_collection.kb \
+  -target=aws_iam_role.kb \
+  -target=aws_iam_role_policy.kb_s3 \
+  -target=time_sleep.wait_for_collection
+echo "  ✓ OpenSearch collection ready"
+echo ""
+
+# --- Create the k-NN vector index (Bedrock requires it to pre-exist) ---
+echo "► Creating OpenSearch k-NN index..."
+COLLECTION_ENDPOINT=$(terraform -chdir=terraform output -raw collection_endpoint)
+export COLLECTION_ENDPOINT
+export AWS_REGION="${REGION}"
+python3 scripts/create_os_index.py
+echo ""
+
+# --- Stage 2: Full apply (KB, Agent, Lambda, etc.) ---
+echo "► Stage 2: Provisioning Knowledge Base, Agent, and Lambda..."
+terraform -chdir=terraform apply -auto-approve -input=false ${TF_VARS}
 echo "  ✓ Infrastructure ready"
 echo ""
 
@@ -73,13 +90,14 @@ AGENT_ID=$(terraform -chdir=terraform output -raw agent_id)
 AGENT_ALIAS=$(terraform -chdir=terraform output -raw agent_alias_id)
 
 echo "=== Provision Complete ==="
-echo "  Bucket       : s3://${BUCKET}"
-echo "  Knowledge Base: ${KB_ID}"
-echo "  Agent ID     : ${AGENT_ID}"
-echo "  Lambda URL   : ${LAMBDA_URL}"
+echo "  Bucket        : s3://${BUCKET}"
+echo "  Knowledge Base : ${KB_ID}"
+echo "  Agent ID      : ${AGENT_ID}"
+echo "  Lambda URL    : ${LAMBDA_URL}"
 echo ""
 echo "► Test your agent:"
 echo "  curl -X POST ${LAMBDA_URL} \\"
 echo "    -H 'Content-Type: application/json' \\"
 echo "    -d '{\"message\": \"What documents are available?\"}'"
 echo ""
+
