@@ -9,6 +9,16 @@ AGENT_ID       = os.environ["AGENT_ID"]
 AGENT_ALIAS_ID = os.environ["AGENT_ALIAS_ID"]
 
 
+def _s3_to_https(uri):
+    """Convert s3://bucket/key to public HTTPS URL."""
+    if not uri or not uri.startswith("s3://"):
+        return uri
+    parts = uri[5:].split("/", 1)
+    bucket = parts[0]
+    key = parts[1] if len(parts) > 1 else ""
+    return f"https://{bucket}.s3.amazonaws.com/{key}"
+
+
 def lambda_handler(event, context):
     body = json.loads(event.get("body") or "{}")
     message = body.get("message", "")
@@ -25,11 +35,25 @@ def lambda_handler(event, context):
         inputText=message,
     )
 
-    # Stream the completion chunks
     answer = ""
-    for event in response["completion"]:
-        if "chunk" in event:
-            answer += event["chunk"]["bytes"].decode("utf-8")
+    seen_urls = []
+
+    for evt in response["completion"]:
+        if "chunk" not in evt:
+            continue
+        chunk = evt["chunk"]
+        answer += chunk["bytes"].decode("utf-8")
+
+        # Extract citations from attribution metadata
+        for citation in chunk.get("attribution", {}).get("citations", []):
+            for ref in citation.get("retrievedReferences", []):
+                loc = ref.get("location", {})
+                uri = loc.get("s3Location", {}).get("uri") or loc.get("uri", "")
+                url = _s3_to_https(uri)
+                title = ref.get("metadata", {}).get("title") or uri.rsplit("/", 1)[-1]
+                if url and url not in seen_urls:
+                    seen_urls.append(url)
+                    answer += f"\n- [{title}]({url})"
 
     return {
         "statusCode": 200,
