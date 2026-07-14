@@ -118,7 +118,7 @@ resource "aws_iam_role_policy" "agent_bedrock" {
 resource "aws_bedrockagent_agent" "search" {
   agent_name              = "${local.name}-agent"
   agent_resource_role_arn = aws_iam_role.agent.arn
-  foundation_model        = "anthropic.claude-3-5-sonnet-20241022-v2:0"
+  foundation_model        = "amazon.nova-lite-v1:0"
   idle_session_ttl_in_seconds = 600
 
   instruction = <<-EOT
