@@ -36,7 +36,7 @@ resource "aws_opensearchserverless_access_policy" "kb" {
     ]
     Principal = [
       aws_iam_role.kb.arn,
-      "arn:aws:iam::${var.account_id}:root"
+      data.aws_caller_identity.current.arn,
     ]
   }])
 }
