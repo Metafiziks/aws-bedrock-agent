@@ -21,7 +21,7 @@ INDEX_MAPPING = {
         "properties": {
             "bedrock-knowledge-base-default-vector": {
                 "type": "knn_vector",
-                "dimension": 1536,
+                "dimension": 1024,
                 "method": {"name": "hnsw", "engine": "faiss", "space_type": "l2"},
             },
             "AMAZON_BEDROCK_TEXT_CHUNK": {"type": "text"},
