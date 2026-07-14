@@ -18,11 +18,10 @@ try:
     from botocore.auth import SigV4Auth
     from botocore.awsrequest import AWSRequest
 except ImportError:
-    import subprocess, sys
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "boto3", "-q"])
-    import boto3
-    from botocore.auth import SigV4Auth
-    from botocore.awsrequest import AWSRequest
+    raise SystemExit(
+        "boto3 not found. The provision.sh script should have set up a venv.\n"
+        "Run: python3 -m venv /tmp/aoss-venv && /tmp/aoss-venv/bin/pip install boto3 -q"
+    )
 
 INDEX_NAME = "bedrock-kb-index"
 INDEX_MAPPING = {

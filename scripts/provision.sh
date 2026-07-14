@@ -39,9 +39,11 @@ echo ""
 # --- Create the k-NN vector index (Bedrock requires it to pre-exist) ---
 echo "► Creating OpenSearch k-NN index..."
 COLLECTION_ENDPOINT=$(terraform -chdir=terraform output -raw collection_endpoint)
-export COLLECTION_ENDPOINT
-export AWS_REGION="${REGION}"
-python3 scripts/create_os_index.py
+# Use a venv to avoid Homebrew's externally-managed-environment restriction
+python3 -m venv /tmp/aoss-venv --clear 2>/dev/null || true
+/tmp/aoss-venv/bin/pip install boto3 -q
+COLLECTION_ENDPOINT="${COLLECTION_ENDPOINT}" AWS_REGION="${REGION}" \
+  /tmp/aoss-venv/bin/python3 scripts/create_os_index.py
 echo ""
 
 # --- Stage 2: Full apply (KB, Agent, Lambda, etc.) ---
