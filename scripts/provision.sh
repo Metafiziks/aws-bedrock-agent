@@ -19,16 +19,6 @@ aws sts get-caller-identity --query Account --output text >/dev/null || { echo "
 
 echo ""
 echo "┌─────────────────────────────────────────────────────────────────┐"
-echo "│  PREREQUISITE: Enable Bedrock model access in AWS Console        │"
-echo "│                                                                  │"
-echo "│  1. Open: https://console.aws.amazon.com/bedrock/home#/modelaccess"
-echo "│  2. Request access for:                                          │"
-echo "│     • Anthropic Claude 3.5 Sonnet                                │"
-echo "│     • Amazon Titan Embeddings V2                                 │"
-echo "│  3. Wait for 'Access granted' status (usually instant)           │"
-echo "└─────────────────────────────────────────────────────────────────┘"
-echo ""
-read -r -p "  Press Enter once model access is granted to continue..."
 echo ""
 
 # --- Terraform ---
