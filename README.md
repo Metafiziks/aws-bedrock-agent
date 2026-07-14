@@ -52,10 +52,7 @@ S3 Bucket (docs/ prefix, public read, HTTPS citation links)
 - [Terraform](https://developer.hashicorp.com/terraform/install) ≥ 1.5 — `brew install hashicorp/tap/terraform`
 - AWS account with billing enabled
 
-> **One-time console step:** Before running `provision.sh`, visit  
-> `https://console.aws.amazon.com/bedrock/home#/modelaccess`  
-> and request access for **Anthropic Claude 3.5 Sonnet** and **Amazon Titan Embeddings V2**.  
-> The script will pause and prompt you for this.
+> **Model access:** As of 2025, Bedrock models are automatically enabled on first invocation — no manual console step required.
 
 ## Quick start
 
