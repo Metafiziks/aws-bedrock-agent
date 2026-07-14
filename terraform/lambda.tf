@@ -26,7 +26,7 @@ resource "aws_iam_role_policy" "lambda_bedrock" {
     Statement = [{
       Effect   = "Allow"
       Action   = ["bedrock:InvokeAgent"]
-      Resource = aws_bedrockagent_agent_alias.live.agent_alias_arn
+      Resource = "arn:aws:bedrock:${var.region}:${var.account_id}:agent-alias/${aws_bedrockagent_agent.search.agent_id}/*"
     }]
   })
 }
@@ -49,7 +49,7 @@ resource "aws_lambda_function" "invoke" {
   environment {
     variables = {
       AGENT_ID       = aws_bedrockagent_agent.search.agent_id
-      AGENT_ALIAS_ID = aws_bedrockagent_agent_alias.live.agent_alias_id
+      AGENT_ALIAS_ID = "TSTALIASID"
     }
   }
 }
