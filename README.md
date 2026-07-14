@@ -10,8 +10,8 @@ $ curl -X POST https://<lambda-url> \
 {
   "answer": "If a hydraulic press is leaking oil, immediately stop the machine and notify
   maintenance personnel. Do not operate the press while there are active hydraulic leaks.
-  Use absorbent pads and follow established spill response procedures.\n\n
-  Sources:\n- [hydraulic_press_troubleshooting](https://s3.amazonaws.com/<bucket>/docs/maintenance/hydraulic_press_troubleshooting.txt)",
+  Use absorbent pads and follow established spill response procedures.
+  - [hydraulic_press_troubleshooting.txt](https://...s3.amazonaws.com/docs/maintenance/hydraulic_press_troubleshooting.txt)",
   "sessionId": "abc-123"
 }
 ```
@@ -22,9 +22,9 @@ $ curl -X POST https://<lambda-url> \
 |---|---|
 | S3 Bucket | Stores document corpus (public read for citation links) |
 | Bedrock Knowledge Base | RAG — chunks, embeds, and indexes documents; retrieves relevant passages |
-| OpenSearch Serverless | Vector store backing the Knowledge Base |
-| Bedrock Agent (Claude 3.5 Sonnet) | Synthesizes answers from retrieved passages |
-| Lambda Function + URL | HTTP invoke endpoint for the agent |
+| OpenSearch Serverless | Vector store (k-NN index, 1024-dim) backing the Knowledge Base |
+| Bedrock Agent (Amazon Nova Lite) | Synthesizes answers from retrieved passages |
+| Lambda Function + URL | Public HTTP endpoint for invoking the agent |
 | AWS Budgets | Monthly cost alert at $50 |
 | GitHub OIDC | Secretless GitHub Actions auth |
 
@@ -35,24 +35,24 @@ User question (HTTP POST to Lambda URL)
      │
      ▼
 Lambda (handler.py)
-     │  calls bedrock:InvokeAgent
+     │  bedrock:InvokeAgent
      ▼
-Bedrock Agent (Claude 3.5 Sonnet)
+Bedrock Agent (Amazon Nova Lite)
      │  retrieves from Knowledge Base
      ▼
-Bedrock Knowledge Base (Titan Embeddings V2 + OpenSearch Serverless)
+Bedrock Knowledge Base
+     │  Titan Embed Text v2 (1024-dim) → OpenSearch Serverless
      │  indexed from
      ▼
-S3 Bucket (docs/ prefix, public read, HTTPS citation links)
+S3 Bucket  (docs/ prefix · public read · HTTPS citation links)
 ```
 
 ## Prerequisites
 
-- [AWS CLI](https://aws.amazon.com/cli/) (`brew install awscli`)
+- [AWS CLI v2](https://aws.amazon.com/cli/) — `brew install awscli`
 - [Terraform](https://developer.hashicorp.com/terraform/install) ≥ 1.5 — `brew install hashicorp/tap/terraform`
-- AWS account with billing enabled
-
-> **Model access:** As of 2025, Bedrock models are automatically enabled on first invocation — no manual console step required.
+- Python 3 — for the OpenSearch index bootstrap script
+- AWS account authenticated: `aws configure sso` or `aws configure`
 
 ## Quick start
 
@@ -60,26 +60,44 @@ S3 Bucket (docs/ prefix, public read, HTTPS citation links)
 git clone https://github.com/Metafiziks/aws-bedrock-agent
 cd aws-bedrock-agent
 
-# Auth
+# 1. Authenticate
 aws configure sso   # or: aws configure
 
-# Set required env vars
-export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-export GITHUB_REPO=your-org/your-repo
-export ALERT_EMAIL=you@example.com
-export ENV_NAME=search-agent
-export REGION=us-east-1
+# 2. Fill in your values (gitignored — never committed)
+cat > terraform/terraform.tfvars <<EOF
+account_id  = "$(aws sts get-caller-identity --query Account --output text)"
+github_repo = "your-org/your-repo"
+alert_email = "you@example.com"
+region      = "us-east-1"
+env_name    = "search-agent"
+EOF
 
-# Provision everything + index documents (~10-15 min)
+# 3. Drop your .txt documents into docs/
+#    (sample manufacturing docs already included)
+
+# 4. Provision everything (~10-15 min)
 bash scripts/provision.sh
+```
 
-# Tear everything down when done
+The script will output the Lambda URL to test with:
+
+```bash
+curl -X POST https://<lambda-url> \
+  -H 'Content-Type: application/json' \
+  -d '{"message": "What documents are available?"}'
+```
+
+## Teardown
+
+```bash
 bash scripts/teardown.sh
 ```
 
+Runs `terraform destroy` — removes all AWS resources. The OpenSearch collection takes ~2 min to delete.
+
 ## Adding your documents
 
-Drop `.txt` files into `docs/` before running `provision.sh`:
+Drop `.txt` files into `docs/` before running `provision.sh`. Subdirectory structure is preserved as the S3 key prefix:
 
 ```
 docs/
@@ -88,58 +106,46 @@ docs/
   quality/      inspection_standard.txt
 ```
 
-## Environment variables
-
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `ACCOUNT_ID` | ✅ | — | AWS account ID |
-| `GITHUB_REPO` | ✅ | — | `owner/repo` for OIDC |
-| `ALERT_EMAIL` | ✅ | — | Email for budget alerts |
-| `ENV_NAME` | — | `search-agent` | Prefix for all resource names |
-| `REGION` | — | `us-east-1` | AWS region |
+Re-run `bash scripts/provision.sh` to sync new docs and re-index.
 
 ## GitHub Actions CI/CD
 
-After provisioning, set these repo variables:
+After provisioning, wire up the workflow for automatic re-indexing on push:
 
 ```bash
 gh variable set AWS_ROLE_ARN --body "$(terraform -chdir=terraform output -raw github_actions_role_arn)"
-gh variable set AWS_REGION --body "$REGION"
-gh variable set DOCS_BUCKET --body "$(terraform -chdir=terraform output -raw docs_bucket)"
+gh variable set AWS_REGION    --body "us-east-1"
+gh variable set DOCS_BUCKET   --body "$(terraform -chdir=terraform output -raw docs_bucket)"
 gh variable set KNOWLEDGE_BASE_ID --body "$(terraform -chdir=terraform output -raw knowledge_base_id)"
-gh variable set DATA_SOURCE_ID --body "$(terraform -chdir=terraform output -raw data_source_id)"
-gh variable set ENV_NAME --body "$ENV_NAME"
+gh variable set DATA_SOURCE_ID    --body "$(terraform -chdir=terraform output -raw data_source_id)"
 ```
 
-Every push to `main` syncs new documents and reindexes the Knowledge Base.
-
-## Teardown
-
-```bash
-export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-export ENV_NAME=search-agent
-export REGION=us-east-1
-
-bash scripts/teardown.sh
-```
+Every push to `main` syncs new documents and reindexes the Knowledge Base. No AWS credentials stored as secrets.
 
 ## Comparison across cloud providers
 
 | | This template (AWS) | [GCP](https://github.com/Metafiziks/gcp-search-agent) | [Azure](https://github.com/Metafiziks/azd-foundry-search-agent) |
 |---|---|---|---|
-| Provision | `terraform apply` | `terraform apply` | `azd provision` (Bicep) |
-| Deploy | built into provision | `adk deploy cloud_run` | `azd deploy` |
-| LLM | Claude 3.5 Sonnet (Bedrock) | Gemini 2.5 Flash (Agent Platform) | GPT-5 (AI Foundry) |
+| Provision | `bash scripts/provision.sh` | `bash scripts/provision.sh` | `azd provision` |
+| LLM | Amazon Nova Lite (Bedrock) | Gemini 2.5 Flash (Vertex AI) | GPT-5 (Azure AI Foundry) |
+| Agent SDK | Bedrock Agents (managed) | Google ADK + Cloud Run | AI Foundry hosted agent |
 | RAG | Bedrock Knowledge Bases | Vertex AI Search Enterprise | Azure AI Search |
-| Agent runtime | Bedrock Agents (managed) | Google ADK + Cloud Run | AI Foundry hosted agent |
+| Vector store | OpenSearch Serverless | Vertex AI Search (built-in) | Azure AI Search (built-in) |
 | Auth | GitHub OIDC | Workload Identity Federation | Azure OIDC |
 | Teardown | `bash scripts/teardown.sh` | `bash scripts/teardown.sh` | `azd down` |
 
 ## Troubleshooting
 
-| Error | Fix |
-|---|---|
-| `AccessDeniedException` on Bedrock | Request model access at console.aws.amazon.com/bedrock/home#/modelaccess |
-| `ResourceNotFoundException` on ingestion | Knowledge Base may still be creating — wait 2-3 min and retry |
-| Lambda timeout | Increase `timeout` in `lambda.tf` (Bedrock can take 30-60s for complex queries) |
-| OpenSearch collection not ready | Collection creation takes ~5 min — `terraform apply` will wait automatically |
+These are hard-won lessons from live provisioning — save yourself the debugging time.
+
+| Error | Cause | Fix |
+|---|---|---|
+| `no such index [bedrock-kb-index]` | Bedrock does NOT auto-create the OpenSearch index | `provision.sh` pre-creates it via the OpenSearch HTTP API before the KB is created |
+| `Query vector has invalid dimension: 1024. Dimension should be: 1536` | Wrong vector dimension in index mapping | Titan Embed **v2** outputs 1024 dims. 1536 is v1. Index must match. |
+| `403 Forbidden` on OpenSearch index creation | Manual SigV4 signing via botocore/http.client has header conflicts | Use `opensearch-py`'s `AWSV4SignerAuth` — it handles signing correctly |
+| `externally-managed-environment` (pip) | Python 3.13+ on Homebrew blocks system pip | Script creates `/tmp/aoss-venv` venv automatically |
+| `resourceNotFoundException` — model not found | Anthropic Claude models require submitting a use case form on new accounts | Template uses **Amazon Nova Lite** — no form required |
+| `on-demand throughput isn't supported` | Newer Claude models require inference profiles (`us.` prefix), not on-demand IDs | Use `us.anthropic.claude-*` or switch to Amazon Nova models |
+| KB `403 Forbidden` during creation | KB IAM role missing `aoss:APIAccessAll` on collection ARN | Added to `aws_iam_role_policy.kb_s3` |
+| `AccessDeniedException` on Lambda | IAM policy scoped to specific alias ARN; alias changed | Policy now uses wildcard: `agent-alias/{agent-id}/*` |
+| OpenSearch collection takes time | Access policies take 60s+ to propagate after collection creation | `time_sleep` resource waits 60s before creating the Knowledge Base |
