@@ -1,0 +1,52 @@
+name: Deploy Agent
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Sync documents to S3
+        run: |
+          aws s3 sync docs/ s3://${{ vars.DOCS_BUCKET }}/docs/
+
+      - name: Trigger Knowledge Base sync
+        run: |
+          JOB=$(aws bedrock-agent start-ingestion-job \
+            --knowledge-base-id ${{ vars.KNOWLEDGE_BASE_ID }} \
+            --data-source-id ${{ vars.DATA_SOURCE_ID }} \
+            --query "ingestionJob.ingestionJobId" --output text)
+          echo "Ingestion job: $JOB"
+          while true; do
+            STATUS=$(aws bedrock-agent get-ingestion-job \
+              --knowledge-base-id ${{ vars.KNOWLEDGE_BASE_ID }} \
+              --data-source-id ${{ vars.DATA_SOURCE_ID }} \
+              --ingestion-job-id $JOB \
+              --query "ingestionJob.status" --output text)
+            echo "Status: $STATUS"
+            [[ "$STATUS" == "COMPLETE" ]] && break
+            [[ "$STATUS" == "FAILED" ]] && exit 1
+            sleep 10
+          done
+
+      - name: Update Lambda function
+        run: |
+          zip -j lambda.zip src/lambda/handler.py
+          aws lambda update-function-code \
+            --function-name ${{ vars.ENV_NAME }}-invoke \
+            --zip-file fileb://lambda.zip
