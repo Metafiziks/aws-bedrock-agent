@@ -27,8 +27,17 @@ resource "aws_iam_role_policy" "kb_s3" {
       Effect   = "Allow"
       Action   = ["bedrock:InvokeModel"]
       Resource = "*"
+    }, {
+      Effect   = "Allow"
+      Action   = ["aoss:APIAccessAll"]
+      Resource = aws_opensearchserverless_collection.kb.arn
     }]
   })
+}
+
+resource "time_sleep" "wait_for_collection" {
+  create_duration = "60s"
+  depends_on      = [aws_opensearchserverless_collection.kb, aws_opensearchserverless_access_policy.kb]
 }
 
 # ── Bedrock Knowledge Base ──────────────────────────────────────────────────
@@ -59,6 +68,8 @@ resource "aws_bedrockagent_knowledge_base" "docs" {
   depends_on = [
     aws_opensearchserverless_access_policy.kb,
     aws_opensearchserverless_collection.kb,
+    time_sleep.wait_for_collection,
+    aws_iam_role_policy.kb_s3,
   ]
 }
 
