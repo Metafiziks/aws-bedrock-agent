@@ -41,7 +41,7 @@ echo "► Creating OpenSearch k-NN index..."
 COLLECTION_ENDPOINT=$(terraform -chdir=terraform output -raw collection_endpoint)
 # Use a venv to avoid Homebrew's externally-managed-environment restriction
 python3 -m venv /tmp/aoss-venv --clear 2>/dev/null || true
-/tmp/aoss-venv/bin/pip install boto3 requests -q
+/tmp/aoss-venv/bin/pip install boto3 requests opensearch-py requests-aws4auth -q
 COLLECTION_ENDPOINT="${COLLECTION_ENDPOINT}" AWS_REGION="${REGION}" \
   /tmp/aoss-venv/bin/python3 scripts/create_os_index.py
 echo ""

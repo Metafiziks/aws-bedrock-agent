@@ -9,13 +9,10 @@ Usage:
 """
 import json
 import os
-import sys
+from urllib.parse import urlparse
 
 import boto3
-import requests
-from botocore.auth import SigV4Auth
-from botocore.awsrequest import AWSRequest
-from botocore.credentials import Credentials
+from opensearchpy import OpenSearch, RequestsHttpConnection, AWSV4SignerAuth
 
 INDEX_NAME = "bedrock-kb-index"
 INDEX_MAPPING = {
@@ -37,41 +34,29 @@ INDEX_MAPPING = {
 def main():
     endpoint = os.environ["COLLECTION_ENDPOINT"].rstrip("/")
     region = os.environ.get("AWS_REGION", os.environ.get("AWS_DEFAULT_REGION", "us-east-1"))
+    host = urlparse(endpoint).netloc
 
     session = boto3.Session()
-    frozen = session.get_credentials().get_frozen_credentials()
+    credentials = session.get_credentials()
+    auth = AWSV4SignerAuth(credentials, region, "aoss")
 
-    url = f"{endpoint}/{INDEX_NAME}"
-    body = json.dumps(INDEX_MAPPING).encode("utf-8")
-
-    # Build and sign the request with botocore SigV4Auth
-    aws_req = AWSRequest(
-        method="PUT",
-        url=url,
-        data=body,
-        headers={"Content-Type": "application/json"},
+    client = OpenSearch(
+        hosts=[{"host": host, "port": 443}],
+        http_auth=auth,
+        use_ssl=True,
+        verify_certs=True,
+        connection_class=RequestsHttpConnection,
     )
-    creds = Credentials(frozen.access_key, frozen.secret_key, frozen.token)
-    SigV4Auth(creds, "aoss", region).add_auth(aws_req)
-
-    # Send via requests (avoids http.client Host-header conflicts)
-    resp = requests.put(url, data=body, headers=dict(aws_req.headers))
-    data = resp.text
-    print(f"  HTTP {resp.status_code}: {data}")
-
-    if resp.status_code in (200, 201):
-        print("  ✓ Index created")
-        return
 
     try:
-        err_type = resp.json().get("error", {}).get("type", "")
-        if err_type == "resource_already_exists_exception":
+        resp = client.indices.create(index=INDEX_NAME, body=INDEX_MAPPING)
+        print(f"  ✓ Index created: {resp}")
+    except Exception as e:
+        err_str = str(e)
+        if "resource_already_exists_exception" in err_str:
             print("  ✓ Index already exists, skipping")
-            return
-    except Exception:
-        pass
-
-    raise SystemExit(f"  ✗ Index creation failed: {data}")
+        else:
+            raise SystemExit(f"  ✗ Index creation failed: {e}")
 
 
 if __name__ == "__main__":
