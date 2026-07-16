@@ -19,3 +19,5 @@ venv/
 
 # Lambda build
 src/lambda/function.zip
+terraform/lambda.zip
+eval_results.json
