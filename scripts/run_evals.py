@@ -158,9 +158,18 @@ def call_judge(question: str, answer: str, citations: list[str]) -> dict:
         "inferenceConfig": {"maxTokens": 512, "temperature": 0},
     })
 
-    resp = bedrock.invoke_model(modelId=JUDGE_MODEL, body=body)
-    raw = json.loads(resp["body"].read())
-    text = raw["output"]["message"]["content"][0]["text"].strip()
+    for attempt in range(4):
+        try:
+            resp = bedrock.invoke_model(modelId=JUDGE_MODEL, body=body)
+            raw = json.loads(resp["body"].read())
+            text = raw["output"]["message"]["content"][0]["text"].strip()
+            break
+        except bedrock.exceptions.ThrottlingException:
+            wait = 10 * (2 ** attempt)
+            print(f" [throttled, retrying in {wait}s]", end="", flush=True)
+            time.sleep(wait)
+            if attempt == 3:
+                raise
 
     # Strip accidental markdown fences
     text = re.sub(r"^```json\s*", "", text)

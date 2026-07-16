@@ -103,10 +103,16 @@ echo "    -H 'Content-Type: application/json' \\"
 echo "    -d '{\"message\": \"What documents are available?\"}'"
 echo ""
 
-echo "► Running automated evaluations..."
-echo ""
+echo "► Generating eval cases from docs/..."
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="/tmp/aoss-venv"
+"${VENV_DIR}/bin/pip" install boto3 -q
+AWS_REGION="${REGION}" \
+  "${VENV_DIR}/bin/python3" "${SCRIPT_DIR}/generate_eval_cases.py"
+echo ""
+
+echo "► Running automated evaluations..."
+echo ""
 
 # Ensure eval dependencies are present in the venv
 "${VENV_DIR}/bin/pip" install requests boto3 -q
