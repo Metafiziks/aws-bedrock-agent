@@ -110,17 +110,55 @@ Re-run `bash scripts/provision.sh` to sync new docs and re-index.
 
 ## GitHub Actions CI/CD
 
-After provisioning, wire up the workflow for automatic re-indexing on push:
+`provision.sh` sets all required repo variables automatically if `gh` is authenticated. To set them manually:
 
 ```bash
-gh variable set AWS_ROLE_ARN --body "$(terraform -chdir=terraform output -raw github_actions_role_arn)"
-gh variable set AWS_REGION    --body "us-east-1"
-gh variable set DOCS_BUCKET   --body "$(terraform -chdir=terraform output -raw docs_bucket)"
-gh variable set KNOWLEDGE_BASE_ID --body "$(terraform -chdir=terraform output -raw knowledge_base_id)"
-gh variable set DATA_SOURCE_ID    --body "$(terraform -chdir=terraform output -raw data_source_id)"
+gh variable set AWS_ROLE_ARN       --body "$(terraform -chdir=terraform output -raw github_actions_role_arn)"
+gh variable set AWS_REGION         --body "us-east-1"
+gh variable set DOCS_BUCKET        --body "$(terraform -chdir=terraform output -raw docs_bucket)"
+gh variable set KNOWLEDGE_BASE_ID  --body "$(terraform -chdir=terraform output -raw knowledge_base_id)"
+gh variable set DATA_SOURCE_ID     --body "$(terraform -chdir=terraform output -raw data_source_id)"
+gh variable set LAMBDA_URL         --body "$(terraform -chdir=terraform output -raw lambda_url)"
 ```
 
-Every push to `main` syncs new documents and reindexes the Knowledge Base. No AWS credentials stored as secrets.
+Then activate the workflows by copying them into `.github/workflows/`:
+
+```bash
+cp workflows/*.yml .github/workflows/
+git add .github/workflows/ && git commit -m "Activate CI workflows" && git push
+```
+
+| Workflow | Trigger | What it does |
+|---|---|---|
+| `ingest-docs.yml` | Push to `docs/` | Syncs docs to S3 and re-indexes the Knowledge Base |
+| `deploy-agent.yml` | Push to `src/` | Redeploys the Lambda handler |
+| `run-evals.yml` | Push to `src/` or `tests/`, weekly | Runs the 12-case eval suite via Nova Pro judge; fails CI if metrics drop below threshold |
+
+No AWS credentials stored as secrets — all auth via OIDC.
+
+## Running Evaluations Locally
+
+After provisioning:
+
+```bash
+bash scripts/eval.sh
+```
+
+`eval.sh` resolves the Lambda URL from terraform output automatically. To skip the LLM judge (faster, deterministic metrics only):
+
+```bash
+bash scripts/eval.sh --no-judge
+```
+
+Results are written to `eval_results.json`. Metrics scored:
+
+| Metric | Method | Pass threshold |
+|---|---|---|
+| Keyword Recall | Deterministic | ≥ 0.65 |
+| Citation Recall | Deterministic | ≥ 0.60 |
+| p95 Latency | Deterministic | ≤ 8000ms |
+| Faithfulness | Nova Pro judge | ≥ 0.70 |
+| Answer Relevance | Nova Pro judge | ≥ 0.75 |
 
 ## Comparison across cloud providers
 
