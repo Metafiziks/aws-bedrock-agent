@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import uuid
 import boto3
 
@@ -7,6 +8,20 @@ bedrock = boto3.client("bedrock-agent-runtime", region_name=os.environ.get("AWS_
 
 AGENT_ID       = os.environ["AGENT_ID"]
 AGENT_ALIAS_ID = os.environ["AGENT_ALIAS_ID"]
+
+NOT_FOUND_MESSAGE = (
+    "I couldn't find information about that in the available documentation. "
+    "Please check with your supervisor or try rephrasing your question with "
+    "more specific terms (e.g. include the equipment name)."
+)
+
+# Phrases that indicate the agent hedged instead of answering.
+# Used as a fallback guard when no citations are returned.
+_HEDGE_PATTERNS = re.compile(
+    r"(cannot provide|more information|more details|without knowing|"
+    r"please provide|clarif|insufficient|not contain|unable to)",
+    re.IGNORECASE,
+)
 
 
 def _s3_to_https(uri):
@@ -54,6 +69,12 @@ def lambda_handler(event, context):
                 if url and url not in seen_urls:
                     seen_urls.append(url)
                     answer += f"\n- [{title}]({url})"
+
+    # Defense-in-depth: if no citations were returned and the answer looks like
+    # a hedge or clarifying question, replace it with the standardized not-found
+    # message rather than returning a potentially hallucinated response.
+    if not seen_urls and _HEDGE_PATTERNS.search(answer):
+        answer = NOT_FOUND_MESSAGE
 
     return {
         "statusCode": 200,
