@@ -1,0 +1,63 @@
+name: Run Agent Evaluations
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "scripts/run_evals.py"
+  workflow_dispatch:
+  schedule:
+    # Weekly — Monday 09:00 UTC
+    - cron: "0 9 * * 1"
+
+permissions:
+  id-token: write   # Required for OIDC credential exchange
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  evaluate:
+    name: Evaluate RAG Agent
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install requests boto3 -q
+
+      - name: Run evaluations
+        env:
+          LAMBDA_URL: ${{ vars.LAMBDA_URL }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+        run: python3 scripts/run_evals.py --output eval_results.json
+
+      - name: Upload results artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results-${{ github.run_number }}
+          path: eval_results.json
+          retention-days: 90
+
+      - name: Fail if thresholds not met
+        if: failure()
+        run: |
+          echo "One or more eval metrics fell below threshold. See step summary for details." >&2
+          exit 1
