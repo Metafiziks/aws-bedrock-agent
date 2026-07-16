@@ -117,3 +117,33 @@ AWS_REGION="${REGION}" \
   --output "${SCRIPT_DIR}/../eval_results.json"
 echo ""
 
+# Set GitHub Actions repo variables so CI workflows work without manual config
+if command -v gh &>/dev/null && gh auth status &>/dev/null 2>&1; then
+  echo "► Setting GitHub Actions repo variables..."
+  ROLE_ARN=$(terraform -chdir=terraform output -raw github_actions_role_arn)
+  KB_ID_OUT=$(terraform -chdir=terraform output -raw knowledge_base_id)
+  DS_ID_OUT=$(terraform -chdir=terraform output -raw data_source_id)
+
+  gh variable set AWS_ROLE_ARN        --body "${ROLE_ARN}"
+  gh variable set AWS_REGION          --body "${REGION}"
+  gh variable set DOCS_BUCKET         --body "${BUCKET}"
+  gh variable set KNOWLEDGE_BASE_ID   --body "${KB_ID_OUT}"
+  gh variable set DATA_SOURCE_ID      --body "${DS_ID_OUT}"
+  gh variable set LAMBDA_URL          --body "${LAMBDA_URL}"
+  echo "  ✓ Repo variables set"
+  echo ""
+  echo "► To activate GitHub Actions workflows, copy them to .github/workflows/:"
+  echo "  cp workflows/*.yml .github/workflows/"
+  echo "  git add .github/workflows/ && git commit -m 'Activate CI workflows' && git push"
+else
+  echo "► Skipping GitHub Actions variable setup (gh CLI not authenticated)"
+  echo "  To wire up CI manually, run:"
+  echo "    gh variable set AWS_ROLE_ARN       --body \"\$(terraform -chdir=terraform output -raw github_actions_role_arn)\""
+  echo "    gh variable set AWS_REGION         --body \"${REGION}\""
+  echo "    gh variable set DOCS_BUCKET        --body \"${BUCKET}\""
+  echo "    gh variable set KNOWLEDGE_BASE_ID  --body \"\$(terraform -chdir=terraform output -raw knowledge_base_id)\""
+  echo "    gh variable set DATA_SOURCE_ID     --body \"\$(terraform -chdir=terraform output -raw data_source_id)\""
+  echo "    gh variable set LAMBDA_URL         --body \"${LAMBDA_URL}\""
+fi
+echo ""
+
