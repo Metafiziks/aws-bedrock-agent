@@ -103,3 +103,17 @@ echo "    -H 'Content-Type: application/json' \\"
 echo "    -d '{\"message\": \"What documents are available?\"}'"
 echo ""
 
+echo "► Running automated evaluations..."
+echo ""
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENV_DIR="/tmp/aoss-venv"
+
+# Ensure eval dependencies are present in the venv
+"${VENV_DIR}/bin/pip" install requests boto3 -q
+
+LAMBDA_URL="${LAMBDA_URL}" \
+AWS_REGION="${REGION}" \
+"${VENV_DIR}/bin/python3" "${SCRIPT_DIR}/run_evals.py" \
+  --output "${SCRIPT_DIR}/../eval_results.json"
+echo ""
+
