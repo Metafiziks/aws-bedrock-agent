@@ -160,6 +160,17 @@ Results are written to `eval_results.json`. Metrics scored:
 | Faithfulness | Nova Pro judge | ≥ 0.70 |
 | Answer Relevance | Nova Pro judge | ≥ 0.75 |
 
+**Keeping evals in sync with your docs:**
+
+When you change files in `docs/`, regenerate the eval cases before re-running:
+
+```bash
+AWS_REGION=us-east-1 python3 scripts/generate_eval_cases.py
+bash scripts/eval.sh
+```
+
+`generate_eval_cases.py` reads every `.txt` file under `docs/`, calls Nova Pro to generate 2 Q&A test cases per document, and writes `tests/eval_cases.json`. Running `bash scripts/provision.sh` does this automatically after each doc sync.
+
 ## Comparison across cloud providers
 
 | | This template (AWS) | [GCP](https://github.com/Metafiziks/gcp-search-agent) | [Azure](https://github.com/Metafiziks/azd-foundry-search-agent) |
