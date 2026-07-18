@@ -20,7 +20,14 @@ echo ""
 echo "┌─────────────────────────────────────────────────────────────────┐"
 echo ""
 
-TF_VARS="-var=region=${REGION} -var=env_name=${ENV_NAME}"
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+TF_VARS="-var=region=${REGION} -var=env_name=${ENV_NAME} -var=account_id=${ACCOUNT_ID} -var=github_repo=${GITHUB_REPO:-Metafiziks/aws-bedrock-agent} -var=alert_email=${ALERT_EMAIL:-}"
+
+# --- Purge stale non-count Firehose state entries (pre-conditional-refactor) ---
+terraform -chdir=terraform init -upgrade -input=false -reconfigure -no-color >/dev/null 2>&1 || true
+for r in aws_iam_role.firehose aws_iam_role.cwl_subscription aws_iam_role_policy.firehose_s3 aws_iam_role_policy.cwl_subscription_firehose aws_kinesis_firehose_delivery_stream.telemetry aws_cloudwatch_log_subscription_filter.telemetry; do
+  terraform -chdir=terraform state rm "$r" 2>/dev/null || true
+done
 
 # --- Stage 1: Create OpenSearch collection + IAM (no KB yet) ---
 echo "► Stage 1: Provisioning OpenSearch collection and IAM..."
@@ -44,6 +51,24 @@ python3 -m venv /tmp/aoss-venv --clear 2>/dev/null || true
 /tmp/aoss-venv/bin/pip install boto3 requests opensearch-py requests-aws4auth -q
 COLLECTION_ENDPOINT="${COLLECTION_ENDPOINT}" AWS_REGION="${REGION}" \
   /tmp/aoss-venv/bin/python3 scripts/create_os_index.py
+echo ""
+
+# --- Build Lambda deployment package (with numpy + scikit-learn for IForest) ---
+# Must use --platform manylinux2014_x86_64 so wheels are Linux x86_64 compatible
+# (Lambda runs on Amazon Linux; wheels built on macOS/arm64 will fail to import)
+echo "► Building Lambda package (Linux x86_64 wheels)..."
+LAMBDA_BUILD="$(pwd)/terraform/lambda_build"
+rm -rf "${LAMBDA_BUILD}" && mkdir -p "${LAMBDA_BUILD}"
+python3 -m pip install \
+  --platform manylinux2014_x86_64 \
+  --target "${LAMBDA_BUILD}" \
+  --implementation cp \
+  --python-version 3.12 \
+  --only-binary :all: \
+  -q \
+  numpy scikit-learn
+cp src/lambda/handler.py src/lambda/iforest_scorer.py src/lambda/cloudwatch_sink.py "${LAMBDA_BUILD}/"
+echo "  ✓ Lambda package ready ($(du -sh "${LAMBDA_BUILD}" | cut -f1))"
 echo ""
 
 # --- Stage 2: Full apply (KB, Agent, Lambda, etc.) ---

@@ -5,13 +5,13 @@ RAG Agent Evaluation Runner
 Evaluates the Bedrock Agent Lambda endpoint against a fixed test suite.
 
 Metrics:
-  keyword_recall   (deterministic) — fraction of expected keywords found in the answer
-  citation_recall  (deterministic) — expected source doc appeared in citations (0 or 1)
-  latency_ms       (deterministic) — wall-clock time for the Lambda response
-  faithfulness     (LLM-as-judge)  — every claim grounded in cited sources (0–1)
-  answer_relevance (LLM-as-judge)  — answer fully addresses the question (0–1)
-  hhem_score       (ML model)      — hallucination probability 0–1 (lower = better)
-  anomaly_score    (ML model)      — IsolationForest anomaly signal (logged, not gated)
+  keyword_recall   (deterministic) - fraction of expected keywords found in the answer
+  citation_recall  (deterministic) - expected source doc appeared in citations (0 or 1)
+  latency_ms       (deterministic) - wall-clock time for the Lambda response
+  faithfulness     (LLM-as-judge)  - every claim grounded in cited sources (0-1)
+  answer_relevance (LLM-as-judge)  - answer fully addresses the question (0-1)
+  hhem_score       (ML model)      - hallucination probability 0-1 (lower = better)
+  anomaly_score    (ML model)      - IsolationForest anomaly signal (logged, not gated)
 
 Judge model: amazon.nova-pro-v1:0 (separate from the agent's nova-lite-v1:0)
 HHEM model:  vectara/hallucination_evaluation_model (local inference)
@@ -28,10 +28,10 @@ Usage:
   LAMBDA_URL=https://... AWS_REGION=us-east-1 python3 scripts/run_evals.py --output eval_results.json
 
 Env vars for ML observability:
-  EVAL_IS_BASELINE=true       — tag rows as baseline (used by train_baseline.py)
-  S3_MODEL_BUCKET             — S3 bucket for telemetry export
-  S3_TELEMETRY_PREFIX         — S3 prefix for telemetry JSONL (default: telemetry/)
-  SKIP_HHEM=true              — skip HHEM scoring (saves ~2 GB RAM + download)
+  EVAL_IS_BASELINE=true       - tag rows as baseline (used by train_baseline.py)
+  S3_MODEL_BUCKET             - S3 bucket for telemetry export
+  S3_TELEMETRY_PREFIX         - S3 prefix for telemetry JSONL (default: telemetry/)
+  SKIP_HHEM=true              - skip HHEM scoring (saves ~2 GB RAM + download)
 """
 
 import argparse
@@ -87,7 +87,7 @@ def _get_hhem():
     return _hhem
 
 def score_hhem(question: str, answer: str) -> float | None:
-    """Return hallucination probability 0–1, or None on error."""
+    """Return hallucination probability 0-1, or None on error."""
     if os.environ.get("SKIP_HHEM", "false").lower() == "true":
         return None
     scorer = _get_hhem()
@@ -174,7 +174,7 @@ Source documents cited: {citations}
 
 Score the answer on BOTH of the following metrics using an integer from 1 to 5:
 
-faithfulness — Are ALL factual claims in the answer directly supported by the \
+faithfulness - Are ALL factual claims in the answer directly supported by the \
 cited source documents? No invented or extrapolated information.
   1 = significant fabrications present
   2 = several unsupported claims
@@ -182,14 +182,14 @@ cited source documents? No invented or extrapolated information.
   4 = nearly all claims traceable to sources
   5 = every claim is directly traceable to the cited sources
 
-answer_relevance — Does the answer fully and directly address the question asked?
+answer_relevance - Does the answer fully and directly address the question asked?
   1 = off-topic or does not address the question
   2 = tangentially related but misses the main point
   3 = partially addresses the question, missing key aspects
   4 = mostly complete, minor gaps
   5 = fully and directly addresses the question
 
-Return ONLY a valid JSON object with exactly these keys — no markdown, no explanation outside the JSON:
+Return ONLY a valid JSON object with exactly these keys - no markdown, no explanation outside the JSON:
 {{"faithfulness": <integer 1-5>, "answer_relevance": <integer 1-5>, "reasoning": "<one sentence>"}}"""
 
 
@@ -264,7 +264,7 @@ def check_thresholds(summary: dict, thresholds: dict) -> list[str]:
 def format_markdown_report(summary: dict, cases: list[dict], failures: list[str]) -> str:
     status = "✅ PASSED" if not failures else "❌ FAILED"
     lines = [
-        f"## Eval Results — {status}",
+        f"## Eval Results - {status}",
         "",
         "### Summary",
         "",
@@ -289,7 +289,7 @@ def format_markdown_report(summary: dict, cases: list[dict], failures: list[str]
 
     hhem_mean = summary.get("hhem_score")
     if hhem_mean:
-        lines.append(f"| HHEM (hallucination ↓) | {hhem_mean:.4f} | — | ℹ️ |")
+        lines.append(f"| HHEM (hallucination ↓) | {hhem_mean:.4f} | - | ℹ️ |")
 
     lines += [
         "",
@@ -301,9 +301,9 @@ def format_markdown_report(summary: dict, cases: list[dict], failures: list[str]
     for c in cases:
         s = c["scores"]
         if c.get("error"):
-            lines.append(f"| {c['id']} | ERR | ERR | ERR | ERR | ERR | — |")
+            lines.append(f"| {c['id']} | ERR | ERR | ERR | ERR | ERR | - |")
         else:
-            hhem_str = f"{s['hhem_score']:.3f}" if s.get("hhem_score") is not None else "—"
+            hhem_str = f"{s['hhem_score']:.3f}" if s.get("hhem_score") is not None else "-"
             lines.append(
                 f"| {c['id']} "
                 f"| {s['faithfulness']:.2f} "
@@ -464,28 +464,6 @@ def main():
 if __name__ == "__main__":
     main()
 
-
-Metrics:
-  keyword_recall   (deterministic) — fraction of expected keywords found in the answer
-  citation_recall  (deterministic) — expected source doc appeared in citations (0 or 1)
-  latency_ms       (deterministic) — wall-clock time for the Lambda response
-  faithfulness     (LLM-as-judge)  — every claim grounded in cited sources (0–1)
-  answer_relevance (LLM-as-judge)  — answer fully addresses the question (0–1)
-
-Judge model: amazon.nova-pro-v1:0 (separate from the agent's nova-lite-v1:0)
-
-Pass thresholds (configurable via env vars):
-  THRESHOLD_FAITHFULNESS    default 0.70
-  THRESHOLD_RELEVANCE       default 0.75
-  THRESHOLD_CITATION_RECALL default 0.60
-  THRESHOLD_KEYWORD_RECALL  default 0.65
-  THRESHOLD_P95_LATENCY_MS  default 8000
-
-Usage:
-  LAMBDA_URL=https://... AWS_REGION=us-east-1 python3 scripts/run_evals.py
-  LAMBDA_URL=https://... AWS_REGION=us-east-1 python3 scripts/run_evals.py --output eval_results.json
-"""
-
 import argparse
 import json
 import os
@@ -581,7 +559,7 @@ Source documents cited: {citations}
 
 Score the answer on BOTH of the following metrics using an integer from 1 to 5:
 
-faithfulness — Are ALL factual claims in the answer directly supported by the \
+faithfulness - Are ALL factual claims in the answer directly supported by the \
 cited source documents? No invented or extrapolated information.
   1 = significant fabrications present
   2 = several unsupported claims
@@ -589,14 +567,14 @@ cited source documents? No invented or extrapolated information.
   4 = nearly all claims traceable to sources
   5 = every claim is directly traceable to the cited sources
 
-answer_relevance — Does the answer fully and directly address the question asked?
+answer_relevance - Does the answer fully and directly address the question asked?
   1 = off-topic or does not address the question
   2 = tangentially related but misses the main point
   3 = partially addresses the question, missing key aspects
   4 = mostly complete, minor gaps
   5 = fully and directly addresses the question
 
-Return ONLY a valid JSON object with exactly these keys — no markdown, no explanation outside the JSON:
+Return ONLY a valid JSON object with exactly these keys - no markdown, no explanation outside the JSON:
 {{"faithfulness": <integer 1-5>, "answer_relevance": <integer 1-5>, "reasoning": "<one sentence>"}}"""
 
 
@@ -684,7 +662,7 @@ def check_thresholds(summary: dict, thresholds: dict) -> list[str]:
 def format_markdown_report(summary: dict, cases: list[dict], failures: list[str]) -> str:
     status = "✅ PASSED" if not failures else "❌ FAILED"
     lines = [
-        f"## Eval Results — {status}",
+        f"## Eval Results - {status}",
         "",
         "### Summary",
         "",
@@ -721,7 +699,7 @@ def format_markdown_report(summary: dict, cases: list[dict], failures: list[str]
         s = c["scores"]
         error = c.get("error", "")
         if error:
-            lines.append(f"| {c['id']} | ERR | ERR | ERR | ERR | — |")
+            lines.append(f"| {c['id']} | ERR | ERR | ERR | ERR | - |")
         else:
             lines.append(
                 f"| {c['id']} "
