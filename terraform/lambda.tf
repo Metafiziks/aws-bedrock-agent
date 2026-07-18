@@ -47,8 +47,17 @@ resource "aws_iam_role_policy" "lambda_bedrock" {
 
 data "archive_file" "lambda" {
   type        = "zip"
-  source_file = "${path.module}/../src/lambda/handler.py"
+  source_dir  = "${path.module}/lambda_build"
   output_path = "${path.module}/lambda.zip"
+  depends_on  = []
+}
+
+# Upload Lambda zip to S3 (package is >67 MB due to numpy/sklearn; direct upload limit is 50 MB)
+resource "aws_s3_object" "lambda_zip" {
+  bucket = aws_s3_bucket.docs.bucket
+  key    = "lambda/invoke.zip"
+  source = data.archive_file.lambda.output_path
+  etag   = data.archive_file.lambda.output_md5
 }
 
 resource "aws_lambda_function" "invoke" {
@@ -56,16 +65,17 @@ resource "aws_lambda_function" "invoke" {
   role             = aws_iam_role.lambda.arn
   handler          = "handler.lambda_handler"
   runtime          = "python3.12"
-  filename         = data.archive_file.lambda.output_path
+  s3_bucket        = aws_s3_object.lambda_zip.bucket
+  s3_key           = aws_s3_object.lambda_zip.key
   source_code_hash = data.archive_file.lambda.output_base64sha256
   timeout          = 120
 
   environment {
     variables = {
-      AGENT_ID          = aws_bedrockagent_agent.search.agent_id
-      AGENT_ALIAS_ID    = "TSTALIASID"
-      S3_MODEL_BUCKET   = aws_s3_bucket.docs.bucket
-      S3_MODEL_KEY      = "models/iforest.pkl"
+      AGENT_ID             = aws_bedrockagent_agent.search.agent_id
+      AGENT_ALIAS_ID       = "TSTALIASID"
+      S3_MODEL_BUCKET      = aws_s3_bucket.docs.bucket
+      S3_MODEL_KEY         = "models/iforest.pkl"
       BEDROCK_RERANK_MODEL = "amazon.rerank-v1:0"
     }
   }

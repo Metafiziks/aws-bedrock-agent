@@ -2,7 +2,7 @@
   {
     "id": "daily-inspection-requirements",
     "category": "maintenance",
-    "question": "What are the specific items operators must inspect on conveyors before startup according to the Conveyor Preventive Maintenance Manual?",
+    "question": "What are the specific items operators must inspect on conveyors before startup according to the manual?",
     "expected_keywords": [
       "unusual noise",
       "belt damage",
@@ -16,7 +16,7 @@
   {
     "id": "monthly-maintenance-tasks",
     "category": "maintenance",
-    "question": "What tasks are included in the monthly preventive maintenance for conveyors as outlined in the Conveyor Preventive Maintenance Manual?",
+    "question": "What tasks are included in the monthly preventive maintenance for conveyors as per the manual?",
     "expected_keywords": [
       "lubrication of bearings",
       "gearbox oil level",
@@ -28,13 +28,13 @@
     ]
   },
   {
-    "id": "low-pressure-diagnosis",
+    "id": "low-pressure-causes",
     "category": "maintenance",
-    "question": "What should I check if the hydraulic press cannot reach the target pressure?",
+    "question": "What are the potential causes of a low pressure condition in a hydraulic press as per the troubleshooting guide?",
     "expected_keywords": [
       "hydraulic fluid level",
       "pump condition",
-      "pressure relief valve",
+      "pressure relief valve setting",
       "clogged filters"
     ],
     "expected_sources": [
@@ -42,9 +42,9 @@
     ]
   },
   {
-    "id": "overheating-causes",
+    "id": "overheating-indications",
     "category": "maintenance",
-    "question": "What are the possible causes of hydraulic oil overheating in the press?",
+    "question": "What might indicate that a hydraulic press is overheating according to the troubleshooting guide?",
     "expected_keywords": [
       "restricted cooling",
       "dirty heat exchanger",
@@ -58,12 +58,12 @@
   {
     "id": "classify-defect-type",
     "category": "quality",
-    "question": "How should a production operator classify a finished good with an exposed sharp edge?",
+    "question": "How should a production operator classify a defect where the product has a small cosmetic scuff?",
     "expected_keywords": [
-      "Critical Defect",
-      "exposed sharp edges",
-      "Quality Assurance escalation",
-      "immediate hold"
+      "Minor Defect",
+      "small cosmetic scuff",
+      "approved cosmetic limits",
+      "may be accepted"
     ],
     "expected_sources": [
       "finished_goods_defect_standard.txt"
@@ -72,12 +72,12 @@
   {
     "id": "handle-repeated-defects",
     "category": "quality",
-    "question": "What actions must a supervisor take if repeated minor defects are found in a production lot?",
+    "question": "What actions must a supervisor take if repeated defects are found in a production lot?",
     "expected_keywords": [
       "stop shipment",
       "notify Quality Assurance",
       "last known good unit",
-      "containment"
+      "begin containment"
     ],
     "expected_sources": [
       "finished_goods_defect_standard.txt"
@@ -86,26 +86,30 @@
   {
     "id": "inspection-requirements-details",
     "category": "quality",
-    "question": "What are the specific inspection requirements for incoming materials as per the Incoming Material Inspection Standard?",
+    "question": "What specific items must be verified during the inspection of incoming materials according to the Incoming Material Inspection Standard?",
     "expected_keywords": [
       "supplier name",
       "purchase order",
       "lot number",
-      "certificate of analysis"
+      "certificate of analysis",
+      "quantity",
+      "packaging condition"
     ],
     "expected_sources": [
       "incoming_material_inspection_standard.txt"
     ]
   },
   {
-    "id": "rejection-criteria-explanation",
+    "id": "rejection-criteria-specification",
     "category": "quality",
-    "question": "Under what conditions must incoming materials be rejected or quarantined according to the Incoming Material Inspection Standard?",
+    "question": "Under what conditions must incoming materials be rejected or quarantined as per the Incoming Material Inspection Standard?",
     "expected_keywords": [
       "damaged",
       "mislabeled",
       "contaminated",
-      "missing required documentation"
+      "missing required documentation",
+      "outside tolerance",
+      "unapproved supplier"
     ],
     "expected_sources": [
       "incoming_material_inspection_standard.txt"
@@ -114,12 +118,12 @@
   {
     "id": "required-checks-for-line-clearance",
     "category": "quality",
-    "question": "What are the required checks that must be completed before starting a new product on the production line?",
+    "question": "What are the required checks to perform before starting a new product on the production line?",
     "expected_keywords": [
       "remove all previous product",
       "correct product code",
-      "correct lot number",
-      "correct labels"
+      "correct labels",
+      "supervisor and quality approval"
     ],
     "expected_sources": [
       "line_clearance_standard.txt"
@@ -128,11 +132,11 @@
   {
     "id": "supervisor-responsibilities-during-changeover",
     "category": "quality",
-    "question": "What are the responsibilities of the floor supervisor during a production line changeover?",
+    "question": "What are the responsibilities of the floor supervisor during the line clearance process?",
     "expected_keywords": [
       "complete the line clearance checklist",
       "Quality Assurance approval",
-      "stop the line",
+      "regulated or customer-critical products",
       "document the issue"
     ],
     "expected_sources": [
@@ -140,13 +144,13 @@
     ]
   },
   {
-    "id": "lockout-tagout-required-steps",
+    "id": "lockout-tagout-steps",
     "category": "safety",
-    "question": "What are the required steps for performing lockout tagout on production equipment?",
+    "question": "What are the required steps for performing lockout tagout on a hydraulic press?",
     "expected_keywords": [
       "required steps",
       "lockout tagout",
-      "shut down",
+      "hydraulic press",
       "zero energy verification"
     ],
     "expected_sources": [
@@ -156,11 +160,11 @@
   {
     "id": "supervisor-responsibilities",
     "category": "safety",
-    "question": "What are the responsibilities of floor supervisors during the lockout tagout procedure?",
+    "question": "What are the responsibilities of a floor supervisor during the lockout tagout process?",
     "expected_keywords": [
       "supervisor responsibilities",
-      "confirm",
       "lockout tagout",
+      "floor supervisors",
       "formal lock removal exception process"
     ],
     "expected_sources": [

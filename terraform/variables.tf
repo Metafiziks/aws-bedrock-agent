@@ -18,9 +18,17 @@ variable "env_name" {
 variable "github_repo" {
   description = "GitHub repository in owner/repo format (for OIDC federation)"
   type        = string
+  default     = ""
 }
 
 variable "alert_email" {
-  description = "Email for budget alerts"
+  description = "Email address for budget alert notifications. Leave empty to disable budget alerts."
   type        = string
+  default     = ""
+}
+
+variable "enable_firehose" {
+  description = "Enable CloudWatch → Kinesis Firehose → S3 telemetry export. Requires a Firehose service subscription. Eval runner writes telemetry directly to S3 regardless of this setting."
+  type        = bool
+  default     = false
 }

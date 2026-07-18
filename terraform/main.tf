@@ -62,6 +62,7 @@ resource "aws_s3_bucket_website_configuration" "docs" {
 
 # ── AWS Budgets (earns $20 credit activity) ─────────────────────────────────
 resource "aws_budgets_budget" "monthly" {
+  count        = var.alert_email != "" ? 1 : 0
   name         = "${local.name}-monthly-budget"
   budget_type  = "COST"
   limit_amount = "50"
