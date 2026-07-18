@@ -1,6 +1,6 @@
 # aws-bedrock-agent
 
-A Terraform template that deploys an **Amazon Bedrock Agent** backed by your own document corpus using **Bedrock Knowledge Bases** (RAG). Ask questions in natural language — the agent synthesizes answers and cites source files with direct S3 links. Includes a built-in **automated evaluation suite** that scores every deployment on faithfulness, answer relevance, citation accuracy, and latency using Nova Pro as an LLM judge.
+A Terraform template that deploys an **Amazon Bedrock Agent** backed by your own document corpus using **Bedrock Knowledge Bases** (RAG). Ask questions in natural language — the agent synthesizes answers and cites source files with direct S3 links. Includes a built-in **automated evaluation suite** that scores every deployment on faithfulness, answer relevance, citation accuracy, and latency using Nova Pro as an LLM judge, plus an **ML observability layer** with Bedrock Rerank, IsolationForest anomaly detection, and HHEM hallucination scoring that auto-trains from each deployment.
 
 ```bash
 $ curl -X POST https://<lambda-url> \
@@ -198,3 +198,91 @@ These are hard-won lessons from live provisioning — save yourself the debuggin
 | KB `403 Forbidden` during creation | KB IAM role missing `aoss:APIAccessAll` on collection ARN | Added to `aws_iam_role_policy.kb_s3` |
 | `AccessDeniedException` on Lambda | IAM policy scoped to specific alias ARN; alias changed | Policy now uses wildcard: `agent-alias/{agent-id}/*` |
 | OpenSearch collection takes time | Access policies take 60s+ to propagate after collection creation | `time_sleep` resource waits 60s before creating the Knowledge Base |
+
+---
+
+## ML Observability
+
+Beyond pass/fail eval scores, this template ships a production-ready ML observability layer that runs alongside the Bedrock Agent and learns what "healthy" looks like for your specific document corpus.
+
+### Architecture
+
+```
+Request
+  │
+  ▼
+Lambda Handler
+  │
+  ├── Bedrock Agent  ──→  Knowledge Base (RAG)
+  │                           │
+  │                           ↓ retrieved chunks
+  │
+  ├── Bedrock Rerank API  ──→  Re-scores chunks with amazon.rerank-v1:0
+  │                            (cross-encoder model, better than cosine alone)
+  │
+  ├── IsolationForest  ──→  Anomaly score from 6-d feature vector
+  │   (loaded from S3)       [retrieval_mean, retrieval_std, retrieval_entropy,
+  │                           chunk_count, reranker_mean, search_latency_ms]
+  │
+  └── CloudWatch Sink  ──→  TELEMETRY {json} → stdout
+                             → CloudWatch Logs
+                             → Kinesis Firehose
+                             → S3 (telemetry/year=.../month=.../day=.../...)
+```
+
+### ML Models
+
+| Model | Type | Purpose | Location |
+|-------|------|---------|----------|
+| `amazon.rerank-v1:0` | Cross-encoder reranker | Re-rank retrieved chunks by semantic relevance | Bedrock API |
+| `IsolationForest` | Unsupervised anomaly detector | Flag unusual retrieval patterns before users notice | S3 `models/iforest.pkl` |
+| `vectara/hallucination_evaluation_model` (HHEM-2.1) | Hallucination classifier | Score answer faithfulness in evals (0=faithful, 1=hallucination) | HuggingFace Hub |
+
+### Auto-training
+
+The `provision.sh` script:
+1. Runs the eval suite 5× with `EVAL_IS_BASELINE=true` → 60 baseline rows written to S3 via Firehose
+2. Trains IsolationForest on those rows and uploads `models/iforest.pkl` to S3
+3. Lambda loads the model on next cold start (module-level singleton)
+
+The GitHub Actions workflow (`.github/workflows/retrain-observability.yml`) retrains weekly on the last 30 days of production traffic.
+
+### Anomaly Detection Schema
+
+Telemetry rows written to S3 (via CloudWatch → Firehose):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `request_id` | string | Unique request UUID |
+| `retrieval_score_mean` | float | Mean relevance score of retrieved chunks |
+| `retrieval_score_std` | float | Std dev of retrieval scores (spread) |
+| `retrieval_score_entropy` | float | Entropy of score distribution |
+| `chunk_count` | int | Number of chunks retrieved |
+| `reranker_score_mean` | float | Mean Bedrock Rerank score |
+| `search_latency_ms` | float | End-to-end retrieval latency |
+| `anomaly_score` | float | IForest score (negative = more anomalous) |
+| `is_anomaly` | bool | True if score below -0.1 threshold |
+
+### CloudWatch Insights Queries
+
+```kql
+# Anomaly rate over last 7 days
+fields @timestamp, anomaly_score, is_anomaly
+| filter @message like /TELEMETRY/
+| parse @message "TELEMETRY *" as json_data
+| filter is_anomaly = true
+| stats count() as anomaly_count by bin(1h)
+| sort @timestamp desc
+```
+
+### Weekly Retrain
+
+The `.github/workflows/retrain-observability.yml` workflow triggers every Sunday 02:00 UTC:
+- Reads last 30 days of JSONL telemetry from S3
+- Retrains IsolationForest on production distribution
+- Uploads new `models/iforest.pkl` → Lambda picks up on next cold start
+
+To trigger manually:
+```bash
+gh workflow run retrain-observability.yml
+```

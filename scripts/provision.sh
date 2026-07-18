@@ -123,6 +123,36 @@ AWS_REGION="${REGION}" \
   --output "${SCRIPT_DIR}/../eval_results.json"
 echo ""
 
+# --- Bootstrap IsolationForest with 5× eval baseline runs ---
+S3_MODEL_BUCKET=$(terraform -chdir=terraform output -raw s3_model_bucket)
+S3_TELEMETRY_PREFIX=$(terraform -chdir=terraform output -raw s3_telemetry_prefix)
+
+echo "► Collecting baseline telemetry (5 eval runs → IsolationForest training)..."
+for BASELINE_RUN in 1 2 3 4 5; do
+  echo "  Baseline run ${BASELINE_RUN}/5..."
+  LAMBDA_URL="${LAMBDA_URL}" \
+  AWS_REGION="${REGION}" \
+  EVAL_IS_BASELINE=true \
+  S3_MODEL_BUCKET="${S3_MODEL_BUCKET}" \
+  SKIP_HHEM=true \
+    "${VENV_DIR}/bin/python3" "${SCRIPT_DIR}/run_evals.py" --no-judge \
+      --output "/tmp/baseline_run_${BASELINE_RUN}.json" 2>/dev/null || true
+done
+echo "  ✓ Baseline telemetry written to s3://${S3_MODEL_BUCKET}/${S3_TELEMETRY_PREFIX}"
+echo ""
+
+# Train IsolationForest on baseline telemetry
+echo "► Training IsolationForest anomaly model..."
+"${VENV_DIR}/bin/pip" install scikit-learn numpy -q
+S3_MODEL_BUCKET="${S3_MODEL_BUCKET}" \
+S3_MODEL_KEY="models/iforest.pkl" \
+S3_TELEMETRY_PREFIX="${S3_TELEMETRY_PREFIX}" \
+AWS_REGION="${REGION}" \
+MIN_BASELINE_ROWS=10 \
+  "${VENV_DIR}/bin/python3" "${SCRIPT_DIR}/../observability/train_baseline.py" || \
+  echo "  ⚠ IForest training deferred — Firehose may not have flushed yet (retries weekly)"
+echo ""
+
 # Set GitHub Actions repo variables so CI workflows work without manual config
 if command -v gh &>/dev/null && gh auth status &>/dev/null 2>&1; then
   echo "► Setting GitHub Actions repo variables..."

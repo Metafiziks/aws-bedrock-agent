@@ -1,0 +1,58 @@
+name: Retrain ML Observability Models
+
+on:
+  schedule:
+    # Every Sunday at 02:00 UTC — after the weekly eval run
+    - cron: "0 2 * * 0"
+  workflow_dispatch:
+    inputs:
+      lookback_days:
+        description: "Days of telemetry to train on (default: 30)"
+        default: "30"
+        required: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  retrain:
+    name: Retrain IsolationForest
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install observability dependencies
+        run: pip install -q scikit-learn numpy boto3 requests
+
+      - name: Retrain IsolationForest
+        env:
+          S3_MODEL_BUCKET: ${{ vars.DOCS_BUCKET }}
+          S3_MODEL_KEY: models/iforest.pkl
+          S3_TELEMETRY_PREFIX: telemetry/
+          AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+          RETRAIN_LOOKBACK_DAYS: ${{ github.event.inputs.lookback_days || '30' }}
+          MIN_RETRAIN_ROWS: "20"
+        run: python3 observability/retrain.py
+
+      - name: Upload retrain summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: iforest-retrain-${{ github.run_id }}
+          path: /tmp/iforest_retrained.pkl
+          if-no-files-found: ignore
+          retention-days: 30

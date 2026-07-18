@@ -29,3 +29,18 @@ output "lambda_url" {
 output "github_actions_role_arn" {
   value = aws_iam_role.github_actions.arn
 }
+
+output "s3_model_bucket" {
+  description = "S3 bucket that stores the IsolationForest model and telemetry exports"
+  value       = aws_s3_bucket.docs.bucket
+}
+
+output "s3_model_key" {
+  description = "S3 key for the trained IsolationForest model"
+  value       = "models/iforest.pkl"
+}
+
+output "s3_telemetry_prefix" {
+  description = "S3 prefix where CloudWatch Firehose writes telemetry JSONL files"
+  value       = "telemetry/"
+}
