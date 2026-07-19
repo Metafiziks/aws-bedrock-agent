@@ -1,0 +1,25 @@
+[
+  {
+    "id": "memory-shift-handoff-preference",
+    "category": "memory",
+    "type": "memory",
+    "turns": [
+      {
+        "message": "Please remember this user preference for future sessions: my preferred shift handoff format is a short bullet list focused on safety risks and open maintenance items. Acknowledge this preference in one sentence."
+      },
+      {
+        "message": "What shift handoff format should you use for me?",
+        "expected_keywords": [
+          "short bullet list",
+          "safety",
+          "open maintenance"
+        ],
+        "expected_sources": []
+      }
+    ],
+    "close_message": "End this session and save the conversation memory summary.",
+    "memory_wait_seconds": 30,
+    "memory_max_attempts": 10,
+    "pass_keyword_recall": 0.66
+  }
+]

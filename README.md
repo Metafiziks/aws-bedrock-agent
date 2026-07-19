@@ -175,7 +175,7 @@ Bedrock summarizes memory asynchronously after a session is ended or idle timeou
 
 ### Memory eval
 
-`tests/eval_cases.json` includes `memory-shift-handoff-preference`. It is skipped by default so existing RAG-only evals remain stable. Enable it for memory deployments:
+`tests/memory_eval_cases.json` includes `memory-shift-handoff-preference`. It is loaded in addition to generated document eval cases, so `scripts/generate_eval_cases.py` can overwrite `tests/eval_cases.json` without dropping memory coverage. Memory cases are skipped by default so existing RAG-only evals remain stable. Enable them for memory deployments:
 
 ```bash
 MEMORY_EVAL_ENABLED=true bash scripts/eval.sh
