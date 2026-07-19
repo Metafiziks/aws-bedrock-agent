@@ -49,6 +49,15 @@ def log_async(
     citation_count: Optional[int] = None,
     hhem_score: Optional[float] = None,
     latency_ms: Optional[float] = None,
+    memory_enabled: bool = False,
+    memory_id_present: bool = False,
+    memory_id_mode: Optional[str] = None,
+    memory_session_ended: bool = False,
+    memory_retention_days: Optional[int] = None,
+    memory_read_count: int = 0,
+    memory_write_count: int = 0,
+    memory_summary_count: int = 0,
+    memory_latency_ms: Optional[float] = None,
 ) -> None:
     """
     Emit a telemetry row. In Lambda, CloudWatch captures all print() output,
@@ -72,5 +81,14 @@ def log_async(
         "citation_count":          citation_count,
         "hhem_score":              round(hhem_score, 6) if hhem_score is not None else None,
         "latency_ms":              round(latency_ms, 2) if latency_ms is not None else None,
+        "memory_enabled":          memory_enabled,
+        "memory_id_present":       memory_id_present,
+        "memory_id_mode":          memory_id_mode,
+        "memory_session_ended":    memory_session_ended,
+        "memory_retention_days":   memory_retention_days,
+        "memory_read_count":       memory_read_count,
+        "memory_write_count":      memory_write_count,
+        "memory_summary_count":    memory_summary_count,
+        "memory_latency_ms":       round(memory_latency_ms, 2) if memory_latency_ms is not None else None,
     }
     _emit(row)

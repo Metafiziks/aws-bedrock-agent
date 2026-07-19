@@ -11,6 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 VENV_DIR="/tmp/aoss-venv"
 REGION="${AWS_REGION:-us-east-1}"
+MEMORY_EVAL_ENABLED="${MEMORY_EVAL_ENABLED:-false}"
 
 # Resolve LAMBDA_URL from terraform output if not provided
 if [[ -z "${LAMBDA_URL:-}" ]]; then
@@ -36,6 +37,7 @@ echo ""
 
 LAMBDA_URL="${LAMBDA_URL}" \
 AWS_REGION="${REGION}" \
+MEMORY_EVAL_ENABLED="${MEMORY_EVAL_ENABLED}" \
 "${VENV_DIR}/bin/python3" "${SCRIPT_DIR}/run_evals.py" \
   --output "${REPO_ROOT}/eval_results.json" \
   "$@"

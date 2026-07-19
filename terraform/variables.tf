@@ -32,3 +32,31 @@ variable "enable_firehose" {
   type        = bool
   default     = false
 }
+
+variable "enable_agent_memory" {
+  description = "Enable Bedrock Agents Classic SESSION_SUMMARY memory. When false, Lambda omits memoryId/endSession and existing stateless behavior is preserved."
+  type        = bool
+  default     = false
+}
+
+variable "memory_retention_days" {
+  description = "Number of days Bedrock Agents Classic retains session-summary memory. Valid only when enable_agent_memory is true."
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = var.memory_retention_days >= 1 && var.memory_retention_days <= 365
+    error_message = "memory_retention_days must be between 1 and 365."
+  }
+}
+
+variable "memory_default_id_mode" {
+  description = "How Lambda derives memoryId when the request omits memoryId: explicit requires memoryId, user derives from userId, session derives from sessionId."
+  type        = string
+  default     = "explicit"
+
+  validation {
+    condition     = contains(["explicit", "user", "session"], var.memory_default_id_mode)
+    error_message = "memory_default_id_mode must be one of: explicit, user, session."
+  }
+}

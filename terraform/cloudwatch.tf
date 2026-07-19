@@ -1,7 +1,7 @@
 resource "aws_cloudwatch_log_group" "agent" {
   name              = "/aws/lambda/${var.env_name}-search-agent"
   retention_in_days = 90
-  tags = { Environment = var.env_name }
+  tags              = { Environment = var.env_name }
 }
 
 # S3 prefix placeholders — always created so the eval runner can write telemetry directly
@@ -45,7 +45,7 @@ resource "aws_iam_role_policy" "firehose_s3" {
     Statement = [{
       Effect = "Allow"
       Action = ["s3:AbortMultipartUpload", "s3:GetBucketLocation", "s3:GetObject",
-                "s3:ListBucket", "s3:ListBucketMultipartUploads", "s3:PutObject"]
+      "s3:ListBucket", "s3:ListBucketMultipartUploads", "s3:PutObject"]
       Resource = [aws_s3_bucket.docs.arn, "${aws_s3_bucket.docs.arn}/*"]
     }]
   })

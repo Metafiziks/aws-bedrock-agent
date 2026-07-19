@@ -30,15 +30,15 @@ resource "aws_iam_role_policy" "lambda_bedrock" {
         Resource = "arn:aws:bedrock:${var.region}:${var.account_id}:agent-alias/${aws_bedrockagent_agent.search.agent_id}/*"
       },
       {
-        Sid    = "BedrockRerank"
-        Effect = "Allow"
-        Action = ["bedrock:Rerank"]
+        Sid      = "BedrockRerank"
+        Effect   = "Allow"
+        Action   = ["bedrock:Rerank"]
         Resource = "arn:aws:bedrock:${var.region}::foundation-model/amazon.rerank-v1:0"
       },
       {
-        Sid    = "S3ModelRead"
-        Effect = "Allow"
-        Action = ["s3:GetObject", "s3:HeadObject"]
+        Sid      = "S3ModelRead"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:HeadObject"]
         Resource = "${aws_s3_bucket.docs.arn}/models/*"
       }
     ]
@@ -72,11 +72,14 @@ resource "aws_lambda_function" "invoke" {
 
   environment {
     variables = {
-      AGENT_ID             = aws_bedrockagent_agent.search.agent_id
-      AGENT_ALIAS_ID       = "TSTALIASID"
-      S3_MODEL_BUCKET      = aws_s3_bucket.docs.bucket
-      S3_MODEL_KEY         = "models/iforest.pkl"
-      BEDROCK_RERANK_MODEL = "amazon.rerank-v1:0"
+      AGENT_ID               = aws_bedrockagent_agent.search.agent_id
+      AGENT_ALIAS_ID         = "TSTALIASID"
+      S3_MODEL_BUCKET        = aws_s3_bucket.docs.bucket
+      S3_MODEL_KEY           = "models/iforest.pkl"
+      BEDROCK_RERANK_MODEL   = "amazon.rerank-v1:0"
+      MEMORY_ENABLED         = tostring(var.enable_agent_memory)
+      MEMORY_RETENTION_DAYS  = tostring(var.memory_retention_days)
+      MEMORY_DEFAULT_ID_MODE = var.memory_default_id_mode
     }
   }
 }

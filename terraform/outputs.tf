@@ -44,3 +44,18 @@ output "s3_telemetry_prefix" {
   description = "S3 prefix where CloudWatch Firehose writes telemetry JSONL files"
   value       = "telemetry/"
 }
+
+output "memory_enabled" {
+  description = "Whether Bedrock Agents Classic SESSION_SUMMARY memory is enabled"
+  value       = var.enable_agent_memory
+}
+
+output "memory_retention_days" {
+  description = "Bedrock Agents Classic memory retention period in days"
+  value       = var.memory_retention_days
+}
+
+output "memory_default_id_mode" {
+  description = "Lambda default behavior for deriving memoryId when requests omit it"
+  value       = var.memory_default_id_mode
+}

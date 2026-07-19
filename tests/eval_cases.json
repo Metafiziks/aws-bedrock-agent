@@ -170,5 +170,28 @@
     "expected_sources": [
       "lockout_tagout_procedure.txt"
     ]
+  },
+  {
+    "id": "memory-shift-handoff-preference",
+    "category": "memory",
+    "type": "memory",
+    "turns": [
+      {
+        "message": "For future reference, my preferred shift handoff format is a short bullet list focused on safety risks and open maintenance items.",
+        "end_session": true
+      },
+      {
+        "message": "What shift handoff format should you use for me?",
+        "expected_keywords": [
+          "short bullet list",
+          "safety",
+          "open maintenance"
+        ],
+        "expected_sources": []
+      }
+    ],
+    "memory_wait_seconds": 20,
+    "memory_max_attempts": 6,
+    "pass_keyword_recall": 0.66
   }
 ]

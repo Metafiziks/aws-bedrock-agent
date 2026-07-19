@@ -3,6 +3,9 @@ set -euo pipefail
 
 ENV_NAME="${ENV_NAME:-search-agent}"
 REGION="${REGION:-us-east-1}"
+ENABLE_AGENT_MEMORY="${ENABLE_AGENT_MEMORY:-false}"
+MEMORY_RETENTION_DAYS="${MEMORY_RETENTION_DAYS:-30}"
+MEMORY_DEFAULT_ID_MODE="${MEMORY_DEFAULT_ID_MODE:-explicit}"
 
 echo ""
 echo "=== Provision: Infrastructure + Knowledge Base Setup ==="
@@ -21,7 +24,7 @@ echo "┌───────────────────────�
 echo ""
 
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-TF_VARS="-var=region=${REGION} -var=env_name=${ENV_NAME} -var=account_id=${ACCOUNT_ID} -var=github_repo=${GITHUB_REPO:-Metafiziks/aws-bedrock-agent} -var=alert_email=${ALERT_EMAIL:-}"
+TF_VARS="-var=region=${REGION} -var=env_name=${ENV_NAME} -var=account_id=${ACCOUNT_ID} -var=github_repo=${GITHUB_REPO:-Metafiziks/aws-bedrock-agent} -var=alert_email=${ALERT_EMAIL:-} -var=enable_agent_memory=${ENABLE_AGENT_MEMORY} -var=memory_retention_days=${MEMORY_RETENTION_DAYS} -var=memory_default_id_mode=${MEMORY_DEFAULT_ID_MODE}"
 
 # --- Purge stale non-count Firehose state entries (pre-conditional-refactor) ---
 terraform -chdir=terraform init -upgrade -input=false -reconfigure -no-color >/dev/null 2>&1 || true
@@ -65,9 +68,18 @@ python3 -m pip install \
   --implementation cp \
   --python-version 3.12 \
   --only-binary :all: \
+  --no-cache-dir \
+  --no-compile \
   -q \
-  numpy scikit-learn
+  -r src/lambda/requirements.txt
+find "${LAMBDA_BUILD}" -type d \( -name tests -o -name test -o -name __pycache__ -o -name doc -o -name docs \) -prune -exec rm -rf {} +
+find "${LAMBDA_BUILD}" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
 cp src/lambda/handler.py src/lambda/iforest_scorer.py src/lambda/cloudwatch_sink.py "${LAMBDA_BUILD}/"
+LAMBDA_BUILD_KB=$(du -sk "${LAMBDA_BUILD}" | cut -f1)
+if (( LAMBDA_BUILD_KB >= 256000 )); then
+  echo "ERROR: Lambda package unzipped size is ${LAMBDA_BUILD_KB} KiB; AWS limit is 250 MiB."
+  exit 1
+fi
 echo "  ✓ Lambda package ready ($(du -sh "${LAMBDA_BUILD}" | cut -f1))"
 echo ""
 
@@ -75,6 +87,7 @@ echo ""
 echo "► Stage 2: Provisioning Knowledge Base, Agent, and Lambda..."
 terraform -chdir=terraform apply -auto-approve -input=false ${TF_VARS}
 echo "  ✓ Infrastructure ready"
+echo "  Memory enabled: ${ENABLE_AGENT_MEMORY} (retention=${MEMORY_RETENTION_DAYS}d, default_id_mode=${MEMORY_DEFAULT_ID_MODE})"
 echo ""
 
 BUCKET=$(terraform -chdir=terraform output -raw docs_bucket)
@@ -144,6 +157,7 @@ echo ""
 
 LAMBDA_URL="${LAMBDA_URL}" \
 AWS_REGION="${REGION}" \
+MEMORY_EVAL_ENABLED="${ENABLE_AGENT_MEMORY}" \
 "${VENV_DIR}/bin/python3" "${SCRIPT_DIR}/run_evals.py" \
   --output "${SCRIPT_DIR}/../eval_results.json"
 echo ""
@@ -158,6 +172,7 @@ for BASELINE_RUN in 1 2 3 4 5; do
   LAMBDA_URL="${LAMBDA_URL}" \
   AWS_REGION="${REGION}" \
   EVAL_IS_BASELINE=true \
+  MEMORY_EVAL_ENABLED=false \
   S3_MODEL_BUCKET="${S3_MODEL_BUCKET}" \
   SKIP_HHEM=true \
     "${VENV_DIR}/bin/python3" "${SCRIPT_DIR}/run_evals.py" --no-judge \
@@ -207,4 +222,3 @@ else
   echo "    gh variable set LAMBDA_URL         --body \"${LAMBDA_URL}\""
 fi
 echo ""
-
