@@ -73,7 +73,7 @@ resource "aws_lambda_function" "invoke" {
   environment {
     variables = {
       AGENT_ID               = aws_bedrockagent_agent.search.agent_id
-      AGENT_ALIAS_ID         = "TSTALIASID"
+      AGENT_ALIAS_ID         = aws_bedrockagent_agent_alias.live.agent_alias_id
       S3_MODEL_BUCKET        = aws_s3_bucket.docs.bucket
       S3_MODEL_KEY           = "models/iforest.pkl"
       BEDROCK_RERANK_MODEL   = "amazon.rerank-v1:0"
