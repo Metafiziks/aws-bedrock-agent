@@ -1,6 +1,6 @@
 # aws-bedrock-agent
 
-A Terraform template that deploys an **Amazon Bedrock Agent** backed by your own document corpus using **Bedrock Knowledge Bases** (RAG). Ask questions in natural language — the agent synthesizes answers and cites source files with direct S3 links. Includes a built-in **automated evaluation suite** that scores every deployment on faithfulness, answer relevance, citation accuracy, and latency using Nova Pro as an LLM judge, plus an **ML observability layer** with Bedrock Rerank, IsolationForest anomaly detection, and HHEM hallucination scoring that auto-trains from each deployment.
+A Terraform template that deploys an **Amazon Bedrock Agent** backed by your own document corpus using **Bedrock Knowledge Bases** (RAG). Ask questions in natural language — the agent synthesizes answers and cites source files with direct S3 links. Includes optional **Bedrock Agents Classic session-summary memory** for scoped user/session continuity, a built-in **automated evaluation suite** that scores every deployment on faithfulness, answer relevance, citation accuracy, latency, and memory recall, plus an **ML observability layer** with Bedrock Rerank, IsolationForest anomaly detection, and HHEM hallucination scoring that auto-trains from each deployment.
 
 ```bash
 $ curl -X POST https://<lambda-url> \
@@ -24,6 +24,7 @@ $ curl -X POST https://<lambda-url> \
 | Bedrock Knowledge Base | RAG — chunks, embeds, and indexes documents; retrieves relevant passages |
 | OpenSearch Serverless | Vector store (k-NN index, 1024-dim) backing the Knowledge Base |
 | Bedrock Agent (Amazon Nova Lite) | Synthesizes answers from retrieved passages |
+| Bedrock Agents Classic Memory (optional) | Session-summary memory scoped by `memoryId` for user preferences and conversation continuity |
 | Lambda Function + URL | Public HTTP endpoint for invoking the agent |
 | AWS Budgets | Monthly cost alert at $50 |
 | GitHub OIDC | Secretless GitHub Actions auth |
@@ -36,9 +37,11 @@ User question (HTTP POST to Lambda URL)
      ▼
 Lambda (handler.py)
      │  bedrock:InvokeAgent
+     │  optional memoryId/endSession
      ▼
 Bedrock Agent (Amazon Nova Lite)
-     │  retrieves from Knowledge Base
+     │  ├─ optional SESSION_SUMMARY memory for user/session continuity
+     │  └─ retrieves source-of-truth procedure facts from Knowledge Base
      ▼
 Bedrock Knowledge Base
      │  Titan Embed Text v2 (1024-dim) → OpenSearch Serverless
@@ -70,6 +73,11 @@ github_repo = "your-org/your-repo"
 alert_email = "you@example.com"
 region      = "us-east-1"
 env_name    = "search-agent"
+
+# Optional Bedrock Agents Classic memory
+enable_agent_memory   = false
+memory_retention_days = 30
+memory_default_id_mode = "explicit"
 EOF
 
 # 3. Drop your .txt documents into docs/
@@ -107,6 +115,75 @@ docs/
 ```
 
 Re-run `bash scripts/provision.sh` to sync new docs and re-index.
+
+## Memory layer
+
+Memory is optional and disabled by default. When enabled, Terraform configures Bedrock Agents Classic `SESSION_SUMMARY` memory on the agent and Lambda can pass a scoped `memoryId` plus `endSession` to `InvokeAgent`.
+
+RAG and memory stay separate by design:
+
+| Layer | Use it for | Do not use it for |
+|---|---|---|
+| Knowledge Base / RAG | Manufacturing procedures, safety requirements, quality standards, troubleshooting facts, cited answers | User preferences or cross-session conversation continuity |
+| Agent memory | User/session preferences, prior conversation context, summaries under the same `memoryId` | Source-of-truth procedure answers or uncited manufacturing facts |
+
+### Configuration
+
+Terraform variables:
+
+| Variable | Default | Description |
+|---|---:|---|
+| `enable_agent_memory` | `false` | Adds Bedrock Agents Classic session-summary memory when true. |
+| `memory_retention_days` | `30` | Retains summaries for 1-365 days. |
+| `memory_default_id_mode` | `explicit` | Controls Lambda behavior when a request omits `memoryId`: `explicit` uses only a supplied `memoryId`; `user` derives `user:<userId>`; `session` derives `session:<sessionId>`. |
+
+The provision script accepts the same values as environment variables:
+
+```bash
+ENABLE_AGENT_MEMORY=true \
+MEMORY_RETENTION_DAYS=30 \
+MEMORY_DEFAULT_ID_MODE=explicit \
+bash scripts/provision.sh
+```
+
+### Request contract
+
+```bash
+curl -X POST https://<lambda-url> \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "message": "For future reference, my preferred handoff format is a short safety-first bullet list.",
+    "sessionId": "session-001",
+    "memoryId": "user-123",
+    "endSession": true
+  }'
+```
+
+Use the same `memoryId` on a later session to recall user-specific context:
+
+```bash
+curl -X POST https://<lambda-url> \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "message": "What handoff format should you use for me?",
+    "sessionId": "session-002",
+    "memoryId": "user-123"
+  }'
+```
+
+Bedrock summarizes memory asynchronously after a session is ended or idle timeout elapses. The memory eval waits and retries recall because summaries may not be immediately available.
+
+### Memory eval
+
+`tests/eval_cases.json` includes `memory-shift-handoff-preference`. It is skipped by default so existing RAG-only evals remain stable. Enable it for memory deployments:
+
+```bash
+MEMORY_EVAL_ENABLED=true bash scripts/eval.sh
+```
+
+### Bedrock Agents Classic and AgentCore
+
+This template uses Bedrock Agents Classic because it already deploys `aws_bedrockagent_agent`, Knowledge Bases, and `bedrock-agent-runtime:InvokeAgent`. AWS now describes Bedrock Agents as **Bedrock Agents Classic** and points new forward-looking agent development toward **Amazon Bedrock AgentCore**. Existing Classic customers can continue using Classic memory, but new templates should evaluate AgentCore memory/session primitives when moving off Classic.
 
 ## GitHub Actions CI/CD
 
@@ -260,6 +337,12 @@ Telemetry rows written to S3 (via CloudWatch → Firehose):
 | `chunk_count` | int | Number of chunks retrieved |
 | `reranker_score_mean` | float | Mean Bedrock Rerank score |
 | `search_latency_ms` | float | End-to-end retrieval latency |
+| `memory_enabled` | bool | Whether Lambda memory handling was enabled for the request |
+| `memory_id_present` | bool | Whether a `memoryId` was sent to Bedrock |
+| `memory_read_count` | int | Request-level count for memory-backed recall attempts |
+| `memory_write_count` | int | Request-level count for ended sessions that request memory summarization |
+| `memory_summary_count` | int | Request-level count for summary creation requests (`endSession=true`) |
+| `memory_latency_ms` | float | End-to-end `InvokeAgent` latency for memory-backed requests; Bedrock does not expose a separate memory latency |
 | `anomaly_score` | float | IForest score (negative = more anomalous) |
 | `is_anomaly` | bool | True if score below -0.1 threshold |
 

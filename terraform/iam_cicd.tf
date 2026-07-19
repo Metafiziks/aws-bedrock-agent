@@ -16,11 +16,11 @@ locals {
       Principal = { Federated = aws_iam_openid_connect_provider.github[0].arn }
       Action    = "sts:AssumeRoleWithWebIdentity"
       Condition = {
-        StringLike  = { "token.actions.githubusercontent.com:sub" = "repo:${var.github_repo}:*" }
+        StringLike   = { "token.actions.githubusercontent.com:sub" = "repo:${var.github_repo}:*" }
         StringEquals = { "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com" }
       }
     }]
-  }) : jsonencode({
+    }) : jsonencode({
     Version = "2012-10-17"
     Statement = [{
       Effect    = "Allow"

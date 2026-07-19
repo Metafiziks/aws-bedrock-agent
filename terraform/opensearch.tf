@@ -1,15 +1,15 @@
 resource "aws_opensearchserverless_security_policy" "encryption" {
-  name   = "${local.name}-enc"
-  type   = "encryption"
+  name = "${local.name}-enc"
+  type = "encryption"
   policy = jsonencode({
-    Rules = [{ Resource = ["collection/${local.name}-kb"], ResourceType = "collection" }]
+    Rules       = [{ Resource = ["collection/${local.name}-kb"], ResourceType = "collection" }]
     AWSOwnedKey = true
   })
 }
 
 resource "aws_opensearchserverless_security_policy" "network" {
-  name   = "${local.name}-net"
-  type   = "network"
+  name = "${local.name}-net"
+  type = "network"
   policy = jsonencode([{
     Rules = [
       { Resource = ["collection/${local.name}-kb"], ResourceType = "collection" }
@@ -19,8 +19,8 @@ resource "aws_opensearchserverless_security_policy" "network" {
 }
 
 resource "aws_opensearchserverless_access_policy" "kb" {
-  name   = "${local.name}-access"
-  type   = "data"
+  name = "${local.name}-access"
+  type = "data"
   policy = jsonencode([{
     Rules = [
       {

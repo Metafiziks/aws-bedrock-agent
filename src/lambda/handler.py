@@ -17,6 +17,9 @@ bedrock_rt  = boto3.client("bedrock-runtime",       region_name=os.environ.get("
 AGENT_ID       = os.environ["AGENT_ID"]
 AGENT_ALIAS_ID = os.environ["AGENT_ALIAS_ID"]
 RERANK_MODEL   = os.environ.get("BEDROCK_RERANK_MODEL", "amazon.rerank-v1:0")
+MEMORY_ENABLED = os.environ.get("MEMORY_ENABLED", "false").lower() == "true"
+MEMORY_RETENTION_DAYS = int(os.environ.get("MEMORY_RETENTION_DAYS", "30"))
+MEMORY_DEFAULT_ID_MODE = os.environ.get("MEMORY_DEFAULT_ID_MODE", "explicit").lower()
 
 NOT_FOUND_MESSAGE = (
     "I couldn't find information about that in the available documentation. "
@@ -29,6 +32,46 @@ _HEDGE_PATTERNS = re.compile(
     r"please provide|clarif|insufficient|not contain|unable to)",
     re.IGNORECASE,
 )
+
+_BEDROCK_ID_PATTERN = re.compile(r"^[0-9a-zA-Z._:-]+$")
+
+
+def _coerce_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y"}
+    return bool(value)
+
+
+def _validate_bedrock_id(value, field_name: str, max_length: int = 100) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    if not normalized:
+        return None
+    if len(normalized) < 2 or len(normalized) > max_length or not _BEDROCK_ID_PATTERN.match(normalized):
+        raise ValueError(
+            f"{field_name} must be 2-{max_length} characters and match [0-9a-zA-Z._:-]+"
+        )
+    return normalized
+
+
+def _resolve_memory_id(body: dict, session_id: str) -> tuple[str | None, str]:
+    explicit_memory_id = _validate_bedrock_id(body.get("memoryId") or body.get("memory_id"), "memoryId")
+    if explicit_memory_id:
+        return explicit_memory_id, "explicit"
+
+    if MEMORY_DEFAULT_ID_MODE == "user":
+        user_id = _validate_bedrock_id(body.get("userId") or body.get("user_id"), "userId", max_length=95)
+        if user_id:
+            return f"user:{user_id}", "user"
+    elif MEMORY_DEFAULT_ID_MODE == "session":
+        scoped_session_id = _validate_bedrock_id(session_id, "sessionId", max_length=92)
+        if scoped_session_id:
+            return f"session:{scoped_session_id}", "session"
+
+    return None, MEMORY_DEFAULT_ID_MODE
 
 
 def _s3_to_https(uri):
@@ -82,16 +125,32 @@ def lambda_handler(event, context):
     if not message:
         return {"statusCode": 400, "body": json.dumps({"error": "message field required"})}
 
-    session_id = body.get("sessionId", str(uuid.uuid4()))
+    try:
+        session_id = _validate_bedrock_id(body.get("sessionId", str(uuid.uuid4())), "sessionId")
+        memory_id, memory_id_mode = _resolve_memory_id(body, session_id) if MEMORY_ENABLED else (None, "disabled")
+    except ValueError as exc:
+        return {"statusCode": 400, "body": json.dumps({"error": str(exc)})}
+
+    end_session = _coerce_bool(body.get("endSession", False))
+    if MEMORY_ENABLED and end_session and not memory_id:
+        return {
+            "statusCode": 400,
+            "body": json.dumps({"error": "endSession requires memoryId, userId, or MEMORY_DEFAULT_ID_MODE=session"}),
+        }
 
     # ── Invoke Bedrock Agent ─────────────────────────────────────────────────
     search_start = time.monotonic()
-    response = bedrock.invoke_agent(
-        agentId=AGENT_ID,
-        agentAliasId=AGENT_ALIAS_ID,
-        sessionId=session_id,
-        inputText=message,
-    )
+    invoke_args = {
+        "agentId": AGENT_ID,
+        "agentAliasId": AGENT_ALIAS_ID,
+        "sessionId": session_id,
+        "inputText": message,
+    }
+    if MEMORY_ENABLED and memory_id:
+        invoke_args["memoryId"] = memory_id
+        invoke_args["endSession"] = end_session
+
+    response = bedrock.invoke_agent(**invoke_args)
 
     answer       = ""
     seen_urls    = []
@@ -119,6 +178,11 @@ def lambda_handler(event, context):
                 raw_scores.append(score)
 
     search_latency_ms = (time.monotonic() - search_start) * 1000
+    response_memory_id = (
+        response.get("memoryId")
+        or response.get("ResponseMetadata", {}).get("HTTPHeaders", {}).get("x-amz-bedrock-agent-memory-id")
+        or memory_id
+    )
 
     # ── Bedrock Rerank: score the retrieved chunks ────────────────────────────
     reranker_scores = _rerank(message, raw_chunks) if raw_chunks else []
@@ -150,6 +214,15 @@ def lambda_handler(event, context):
         reranker_score_mean=sum(reranker_scores) / len(reranker_scores) if reranker_scores else 0.0,
         anomaly_score=anomaly_score,
         is_anomaly=is_anomaly,
+        memory_enabled=MEMORY_ENABLED,
+        memory_id_present=bool(memory_id),
+        memory_id_mode=memory_id_mode,
+        memory_session_ended=end_session if memory_id else False,
+        memory_retention_days=MEMORY_RETENTION_DAYS if MEMORY_ENABLED else None,
+        memory_read_count=1 if memory_id and not end_session else 0,
+        memory_write_count=1 if memory_id and end_session else 0,
+        memory_summary_count=1 if memory_id and end_session else 0,
+        memory_latency_ms=search_latency_ms if memory_id else None,
     )
 
     # ── Defense-in-depth fallback ─────────────────────────────────────────────
@@ -159,5 +232,11 @@ def lambda_handler(event, context):
     return {
         "statusCode": 200,
         "headers": {"Content-Type": "application/json"},
-        "body": json.dumps({"answer": answer, "sessionId": session_id}),
+        "body": json.dumps({
+            "answer": answer,
+            "sessionId": session_id,
+            "memoryEnabled": MEMORY_ENABLED,
+            "memoryId": response_memory_id if MEMORY_ENABLED else None,
+            "endSession": end_session if MEMORY_ENABLED else False,
+        }),
     }

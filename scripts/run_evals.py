@@ -32,6 +32,9 @@ Env vars for ML observability:
   S3_MODEL_BUCKET             - S3 bucket for telemetry export
   S3_TELEMETRY_PREFIX         - S3 prefix for telemetry JSONL (default: telemetry/)
   SKIP_HHEM=true              - skip HHEM scoring (saves ~2 GB RAM + download)
+  MEMORY_EVAL_ENABLED=true    - run memory-specific cases; otherwise skip them
+  MEMORY_EVAL_WAIT_SECONDS=20 - wait between memory summary recall attempts
+  MEMORY_EVAL_MAX_ATTEMPTS=6  - retry count for async memory summarization
 """
 
 import argparse
@@ -67,6 +70,9 @@ THRESHOLDS = {
 EVAL_CASES_PATH  = Path(__file__).parent.parent / "tests" / "eval_cases.json"
 DEFAULT_OUTPUT   = Path(__file__).parent.parent / "eval_results.json"
 EVAL_IS_BASELINE = os.environ.get("EVAL_IS_BASELINE", "false").lower() == "true"
+MEMORY_EVAL_ENABLED = os.environ.get("MEMORY_EVAL_ENABLED", "false").lower() == "true"
+MEMORY_EVAL_WAIT_SECONDS = int(os.environ.get("MEMORY_EVAL_WAIT_SECONDS", "20"))
+MEMORY_EVAL_MAX_ATTEMPTS = int(os.environ.get("MEMORY_EVAL_MAX_ATTEMPTS", "6"))
 
 # ---------------------------------------------------------------------------
 # HHEM scoring (lazy load to avoid import penalty when skipped)
@@ -127,16 +133,33 @@ def _log_telemetry_s3(row: dict) -> None:
 # Lambda caller
 # ---------------------------------------------------------------------------
 
-def call_agent(question: str) -> tuple[str, list[str], float]:
+def call_agent(
+    question: str,
+    *,
+    session_id: str | None = None,
+    memory_id: str | None = None,
+    user_id: str | None = None,
+    end_session: bool = False,
+) -> tuple[str, list[str], float, dict]:
     """POST to the Lambda URL.  Returns (answer, citations, latency_ms)."""
+    payload = {"message": question}
+    if session_id:
+        payload["sessionId"] = session_id
+    if memory_id:
+        payload["memoryId"] = memory_id
+    if user_id:
+        payload["userId"] = user_id
+    if end_session:
+        payload["endSession"] = True
+
     start = time.monotonic()
-    resp = requests.post(LAMBDA_URL, json={"message": question}, timeout=30)
+    resp = requests.post(LAMBDA_URL, json=payload, timeout=30)
     latency_ms = (time.monotonic() - start) * 1000
     resp.raise_for_status()
     body = resp.json()
     answer = body.get("answer", "")
     citations = re.findall(r"\[([^\]]+\.txt)\]", answer)
-    return answer, citations, latency_ms
+    return answer, citations, latency_ms, body
 
 # ---------------------------------------------------------------------------
 # Deterministic scorers
@@ -235,10 +258,14 @@ def percentile(values: list[float], p: int) -> float:
 
 def build_summary(cases: list[dict]) -> dict:
     def mean(key):
-        vals = [c["scores"][key] for c in cases if c["scores"].get(key) is not None]
+        vals = [
+            c["scores"][key]
+            for c in cases
+            if not c.get("skipped") and c["scores"].get(key) is not None
+        ]
         return round(sum(vals) / len(vals), 4) if vals else 0.0
 
-    latencies = [c["latency_ms"] for c in cases]
+    latencies = [c["latency_ms"] for c in cases if not c.get("skipped")]
     return {
         "faithfulness":    mean("faithfulness"),
         "answer_relevance": mean("answer_relevance"),
@@ -300,14 +327,18 @@ def format_markdown_report(summary: dict, cases: list[dict], failures: list[str]
     ]
     for c in cases:
         s = c["scores"]
-        if c.get("error"):
+        if c.get("skipped"):
+            lines.append(f"| {c['id']} | SKIP | SKIP | SKIP | SKIP | SKIP | - |")
+        elif c.get("error"):
             lines.append(f"| {c['id']} | ERR | ERR | ERR | ERR | ERR | - |")
         else:
+            faithfulness = f"{s['faithfulness']:.2f}" if s.get("faithfulness") is not None else "-"
+            relevance = f"{s['answer_relevance']:.2f}" if s.get("answer_relevance") is not None else "-"
             hhem_str = f"{s['hhem_score']:.3f}" if s.get("hhem_score") is not None else "-"
             lines.append(
                 f"| {c['id']} "
-                f"| {s['faithfulness']:.2f} "
-                f"| {s['answer_relevance']:.2f} "
+                f"| {faithfulness} "
+                f"| {relevance} "
                 f"| {'✅' if s['citation_recall'] == 1.0 else '❌'} "
                 f"| {s['keyword_recall']:.2f} "
                 f"| {hhem_str} "
@@ -320,6 +351,133 @@ def format_markdown_report(summary: dict, cases: list[dict], failures: list[str]
             lines.append(f"- {f}")
 
     return "\n".join(lines)
+
+
+def is_memory_case(case: dict) -> bool:
+    return case.get("type") == "memory" or case.get("category") == "memory"
+
+
+def _memory_telemetry(case: dict, result: dict, response_body: dict, latency_ms: float, scores: dict) -> None:
+    _log_telemetry_s3({
+        "request_id":             str(uuid.uuid4()),
+        "case_id":                case["id"],
+        "is_baseline":            EVAL_IS_BASELINE,
+        "source":                 "eval-memory",
+        "retrieval_score_mean":   0.0,
+        "retrieval_score_std":    0.0,
+        "retrieval_score_entropy": 0.0,
+        "chunk_count":            len(result.get("citations", [])),
+        "reranker_score_mean":    0.0,
+        "search_latency_ms":      latency_ms,
+        "answer_length":          len(result.get("answer", "")),
+        "citation_count":         len(result.get("citations", [])),
+        "hhem_score":             0.0,
+        "latency_ms":             latency_ms,
+        "faithfulness":           None,
+        "answer_relevance":       None,
+        "keyword_recall":         scores["keyword_recall"],
+        "citation_recall":        scores["citation_recall"],
+        "memory_enabled":         response_body.get("memoryEnabled", False),
+        "memory_id_present":      bool(response_body.get("memoryId")),
+        "memory_read_count":      1,
+        "memory_write_count":     0,
+        "memory_summary_count":   0,
+        "memory_latency_ms":      latency_ms,
+        "timestamp":              datetime.now(timezone.utc).isoformat(),
+    })
+
+
+def run_memory_case(case: dict) -> dict:
+    result = {
+        "id": case["id"],
+        "category": case["category"],
+        "question": case["turns"][-1]["message"],
+        "answer": "",
+        "citations": [],
+        "latency_ms": 0,
+        "scores": {
+            "keyword_recall": None,
+            "citation_recall": None,
+            "faithfulness": None,
+            "answer_relevance": None,
+            "hhem_score": None,
+        },
+        "memory": {},
+    }
+
+    if not MEMORY_EVAL_ENABLED:
+        result["skipped"] = True
+        result["skip_reason"] = "MEMORY_EVAL_ENABLED is false"
+        print("SKIPPED (memory eval disabled)")
+        return result
+
+    turns = case["turns"]
+    if len(turns) < 2:
+        raise ValueError(f"memory case {case['id']} requires at least two turns")
+
+    memory_id = case.get("memory_id") or f"eval:{case['id']}:{uuid.uuid4().hex[:12]}"
+    first_session_id = f"eval-{uuid.uuid4().hex[:16]}"
+    second_session_id = f"eval-{uuid.uuid4().hex[:16]}"
+    first_turn = turns[0]
+    recall_turn = turns[-1]
+    wait_seconds = int(case.get("memory_wait_seconds", MEMORY_EVAL_WAIT_SECONDS))
+    max_attempts = int(case.get("memory_max_attempts", MEMORY_EVAL_MAX_ATTEMPTS))
+    expected_keywords = recall_turn.get("expected_keywords", case.get("expected_keywords", []))
+    expected_sources = recall_turn.get("expected_sources", case.get("expected_sources", []))
+
+    print(f"ending session for summary, then waiting/retrying recall (memoryId={memory_id}) ... ", end="", flush=True)
+    first_answer, _, first_latency_ms, first_body = call_agent(
+        first_turn["message"],
+        session_id=first_session_id,
+        memory_id=memory_id,
+        end_session=first_turn.get("end_session", True),
+    )
+
+    best = None
+    for attempt in range(1, max_attempts + 1):
+        if attempt > 1 or wait_seconds > 0:
+            time.sleep(wait_seconds)
+        answer, citations, latency_ms, body = call_agent(
+            recall_turn["message"],
+            session_id=second_session_id,
+            memory_id=memory_id,
+        )
+        scores = {
+            "keyword_recall":  score_keyword_recall(answer, expected_keywords),
+            "citation_recall": score_citation_recall(citations, expected_sources),
+            "faithfulness": None,
+            "answer_relevance": None,
+            "hhem_score": None,
+            "judge_reasoning": "Memory recall eval is deterministic; no document citations are required.",
+        }
+        candidate = (answer, citations, latency_ms, body, scores, attempt)
+        if best is None or scores["keyword_recall"] > best[4]["keyword_recall"]:
+            best = candidate
+        if scores["keyword_recall"] >= float(case.get("pass_keyword_recall", "1.0")):
+            break
+        if attempt < max_attempts:
+            print(f"attempt {attempt} kw={scores['keyword_recall']:.2f}; waiting {wait_seconds}s ... ", end="", flush=True)
+
+    answer, citations, recall_latency_ms, recall_body, scores, attempts = best
+    result.update({
+        "answer": answer,
+        "citations": citations,
+        "latency_ms": round(first_latency_ms + recall_latency_ms, 1),
+        "scores": scores,
+        "memory": {
+            "memory_id": memory_id,
+            "first_session_id": first_session_id,
+            "second_session_id": second_session_id,
+            "first_response_memory_id": first_body.get("memoryId"),
+            "recall_response_memory_id": recall_body.get("memoryId"),
+            "attempts": attempts,
+            "summary_wait_seconds": wait_seconds,
+            "first_answer": first_answer,
+        },
+    })
+    _memory_telemetry(case, result, recall_body, recall_latency_ms, scores)
+    print(f"kw={scores['keyword_recall']:.2f} attempts={attempts} {result['latency_ms']:.0f}ms")
+    return result
 
 # ---------------------------------------------------------------------------
 # Main
@@ -343,12 +501,33 @@ def main():
     print(f"Region:   {AWS_REGION}")
     print(f"Baseline: {EVAL_IS_BASELINE}")
     print(f"HHEM:     {'disabled' if os.environ.get('SKIP_HHEM') == 'true' else 'enabled'}")
+    print(f"Memory:   {'enabled' if MEMORY_EVAL_ENABLED else 'disabled'}")
     print()
 
     results = []
 
     for i, case in enumerate(eval_cases, 1):
         print(f"[{i:2d}/{len(eval_cases)}] {case['id']} ... ", end="", flush=True)
+
+        if is_memory_case(case):
+            try:
+                results.append(run_memory_case(case))
+            except Exception as e:
+                print(f"ERROR: {e}")
+                results.append({
+                    "id": case["id"],
+                    "category": case["category"],
+                    "question": case.get("turns", [{}])[-1].get("message", ""),
+                    "answer": "",
+                    "citations": [],
+                    "latency_ms": 0,
+                    "error": str(e),
+                    "scores": {
+                        "keyword_recall": 0.0, "citation_recall": 0.0,
+                        "faithfulness": 0.0, "answer_relevance": 0.0, "hhem_score": None,
+                    },
+                })
+            continue
 
         result = {
             "id": case["id"],
@@ -361,10 +540,14 @@ def main():
         }
 
         try:
-            answer, citations, latency_ms = call_agent(case["question"])
+            answer, citations, latency_ms, response_body = call_agent(case["question"])
             result["answer"]     = answer
             result["citations"]  = citations
             result["latency_ms"] = round(latency_ms, 1)
+            result["memory"] = {
+                "enabled": response_body.get("memoryEnabled", False),
+                "memory_id_present": bool(response_body.get("memoryId")),
+            }
 
             scores = {
                 "keyword_recall":  score_keyword_recall(answer, case["expected_keywords"]),
@@ -410,6 +593,12 @@ def main():
                 "answer_relevance":       scores.get("answer_relevance"),
                 "keyword_recall":         scores["keyword_recall"],
                 "citation_recall":        scores["citation_recall"],
+                "memory_enabled":         response_body.get("memoryEnabled", False),
+                "memory_id_present":      bool(response_body.get("memoryId")),
+                "memory_read_count":      1 if response_body.get("memoryId") else 0,
+                "memory_write_count":     0,
+                "memory_summary_count":   0,
+                "memory_latency_ms":      latency_ms if response_body.get("memoryId") else None,
                 "timestamp":              datetime.now(timezone.utc).isoformat(),
             })
 
@@ -442,6 +631,7 @@ def main():
         "run_timestamp": datetime.now(timezone.utc).isoformat(),
         "lambda_url":    LAMBDA_URL,
         "judge_model":   JUDGE_MODEL if not args.no_judge else None,
+        "memory_eval_enabled": MEMORY_EVAL_ENABLED,
         "thresholds":    THRESHOLDS,
         "passed":        passed,
         "summary":       summary,
