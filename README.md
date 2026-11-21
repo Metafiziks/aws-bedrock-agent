@@ -279,17 +279,19 @@ bash scripts/eval.sh
 
 ## Comparison across cloud providers
 
-| | This template (AWS) | [GCP](https://github.com/Metafiziks/gcp-search-agent) | [Azure](https://github.com/Metafiziks/azd-foundry-search-agent) |
+|  | AWS (this repo) | [GCP](https://github.com/Metafiziks/gcp-search-agent) | [Azure](https://github.com/Metafiziks/azd-foundry-search-agent) |
 |---|---|---|---|
-| Provision | `bash scripts/provision.sh` | `bash scripts/provision.sh` | `azd provision` |
+| Provision | `bash scripts/provision.sh` | `bash scripts/provision.sh` | `azd up` |
 | LLM | Amazon Nova Lite (Bedrock) | Gemini 3.5 Flash (Vertex AI) | GPT-5 (Azure AI Foundry) |
-| Agent SDK | Bedrock Agents (managed) | Google ADK + Cloud Run | AI Foundry hosted agent |
+| Agent runtime | Bedrock Agents (managed) | Google ADK + Cloud Run | Foundry hosted agent |
 | RAG | Bedrock Knowledge Bases | Vertex AI Search Enterprise | Azure AI Search |
 | Vector store | OpenSearch Serverless | Vertex AI Search (built-in) | Azure AI Search (built-in) |
-| Auth | GitHub OIDC | Workload Identity Federation | Azure OIDC |
+| CI auth | GitHub OIDC | Workload Identity Federation | Azure OIDC (federated credentials) |
 | Eval judge | Amazon Nova Pro | Gemini 3.5 Flash | GPT-5 |
-| Protected mode | `KB_ACCESS_MODE=protected` (Managed Knowledge Base ACLs; the backend binds the user, AWS does not verify it) | `KB_ACCESS_MODE=protected` (Agent Search ACLs, Preview) | `KB_ACCESS_MODE=purview` (Purview labels, preview) |
-| Memory | Bedrock Agents Classic session-summary memory (optional) | ADK session/user state; optional Agent Engine Memory Bank path | AI Foundry thread/session context path |
+| Memory | Bedrock Agents Classic session-summary memory (optional) | ADK session/user state; optional Agent Engine Memory Bank path | Foundry Memory Store (preview) |
+| Protected mode | `KB_ACCESS_MODE=protected` | `KB_ACCESS_MODE=protected` (Preview) | `KB_ACCESS_MODE=purview` (preview) |
+| Protection mechanism | Managed Knowledge Base document ACLs (user emails) | Agent Search document ACLs | Purview sensitivity labels via Foundry IQ |
+| Who proves the user | Your backend: API Gateway JWT authorizer (Cognito). Bedrock trusts the email it is given | The user's own Google token, checked by Agent Search | The user's delegated token, checked by Azure AI Search |
 | Teardown | `bash scripts/teardown.sh` | `bash scripts/teardown.sh` | `azd down` |
 
 ## Troubleshooting
