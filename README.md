@@ -282,11 +282,14 @@ bash scripts/eval.sh
 | | This template (AWS) | [GCP](https://github.com/Metafiziks/gcp-search-agent) | [Azure](https://github.com/Metafiziks/azd-foundry-search-agent) |
 |---|---|---|---|
 | Provision | `bash scripts/provision.sh` | `bash scripts/provision.sh` | `azd provision` |
-| LLM | Amazon Nova Lite (Bedrock) | Gemini 2.5 Flash (Vertex AI) | GPT-5 (Azure AI Foundry) |
+| LLM | Amazon Nova Lite (Bedrock) | Gemini 3.5 Flash (Vertex AI) | GPT-5 (Azure AI Foundry) |
 | Agent SDK | Bedrock Agents (managed) | Google ADK + Cloud Run | AI Foundry hosted agent |
 | RAG | Bedrock Knowledge Bases | Vertex AI Search Enterprise | Azure AI Search |
 | Vector store | OpenSearch Serverless | Vertex AI Search (built-in) | Azure AI Search (built-in) |
 | Auth | GitHub OIDC | Workload Identity Federation | Azure OIDC |
+| Eval judge | Amazon Nova Pro | Gemini 3.5 Flash | GPT-5 |
+| Protected mode | `KB_ACCESS_MODE=protected` (Managed Knowledge Base ACLs; the backend binds the user, AWS does not verify it) | `KB_ACCESS_MODE=protected` (Agent Search ACLs, Preview) | `KB_ACCESS_MODE=purview` (Purview labels, preview) |
+| Memory | Bedrock Agents Classic session-summary memory (optional) | ADK session/user state; optional Agent Engine Memory Bank path | AI Foundry thread/session context path |
 | Teardown | `bash scripts/teardown.sh` | `bash scripts/teardown.sh` | `azd down` |
 
 ## Troubleshooting
