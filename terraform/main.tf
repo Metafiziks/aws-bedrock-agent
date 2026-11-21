@@ -24,6 +24,8 @@ data "aws_caller_identity" "current" {}
 
 locals {
   name = var.env_name
+  # amazon.rerank-v1:0 is not supported in us-east-1; Cohere Rerank 3.5 is (docs: rerank-supported)
+  rerank_model = "cohere.rerank-v3-5:0"
 }
 
 # ── S3 bucket for documents (public read for citation links) ────────────────

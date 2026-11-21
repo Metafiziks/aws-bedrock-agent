@@ -22,6 +22,7 @@ env:
 jobs:
   evaluate:
     name: Evaluate RAG Agent
+    if: ${{ vars.KB_ACCESS_MODE != 'protected' }}
     runs-on: ubuntu-latest
 
     steps:
