@@ -16,7 +16,9 @@ bedrock_rt  = boto3.client("bedrock-runtime",       region_name=os.environ.get("
 
 AGENT_ID       = os.environ["AGENT_ID"]
 AGENT_ALIAS_ID = os.environ["AGENT_ALIAS_ID"]
-RERANK_MODEL   = os.environ.get("BEDROCK_RERANK_MODEL", "amazon.rerank-v1:0")
+# amazon.rerank-v1:0 is not supported in us-east-1 (only ap-northeast-1, ca-central-1, eu-central-1, us-west-2);
+# cohere.rerank-v3-5:0 is. See https://docs.aws.amazon.com/bedrock/latest/userguide/rerank-supported.html
+RERANK_MODEL   = os.environ.get("BEDROCK_RERANK_MODEL", "cohere.rerank-v3-5:0")
 MEMORY_ENABLED = os.environ.get("MEMORY_ENABLED", "false").lower() == "true"
 MEMORY_RETENTION_DAYS = int(os.environ.get("MEMORY_RETENTION_DAYS", "30"))
 MEMORY_DEFAULT_ID_MODE = os.environ.get("MEMORY_DEFAULT_ID_MODE", "explicit").lower()

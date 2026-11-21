@@ -22,3 +22,8 @@ src/lambda/function.zip
 terraform/lambda.zip
 eval_results.json
 terraform/lambda_build/
+
+# Protected mode
+.protected-state
+terraform/protected/lambda_build/
+terraform/protected/lambda.zip

@@ -32,8 +32,8 @@ resource "aws_iam_role_policy" "lambda_bedrock" {
       {
         Sid      = "BedrockRerank"
         Effect   = "Allow"
-        Action   = ["bedrock:Rerank"]
-        Resource = "arn:aws:bedrock:${var.region}::foundation-model/amazon.rerank-v1:0"
+        Action   = ["bedrock:Rerank", "bedrock:InvokeModel"]
+        Resource = "arn:aws:bedrock:${var.region}::foundation-model/${local.rerank_model}"
       },
       {
         Sid      = "S3ModelRead"
@@ -76,7 +76,7 @@ resource "aws_lambda_function" "invoke" {
       AGENT_ALIAS_ID         = aws_bedrockagent_agent_alias.live.agent_alias_id
       S3_MODEL_BUCKET        = aws_s3_bucket.docs.bucket
       S3_MODEL_KEY           = "models/iforest.pkl"
-      BEDROCK_RERANK_MODEL   = "amazon.rerank-v1:0"
+      BEDROCK_RERANK_MODEL   = local.rerank_model
       MEMORY_ENABLED         = tostring(var.enable_agent_memory)
       MEMORY_RETENTION_DAYS  = tostring(var.memory_retention_days)
       MEMORY_DEFAULT_ID_MODE = var.memory_default_id_mode
