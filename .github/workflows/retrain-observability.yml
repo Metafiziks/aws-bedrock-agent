@@ -18,6 +18,7 @@ permissions:
 jobs:
   retrain:
     name: Retrain IsolationForest
+    if: ${{ vars.KB_ACCESS_MODE != 'protected' }}
     runs-on: ubuntu-latest
     environment: production
 

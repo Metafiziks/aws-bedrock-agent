@@ -185,6 +185,35 @@ MEMORY_EVAL_ENABLED=true bash scripts/eval.sh
 
 This template uses Bedrock Agents Classic because it already deploys `aws_bedrockagent_agent`, Knowledge Bases, and `bedrock-agent-runtime:InvokeAgent`. AWS now describes Bedrock Agents as **Bedrock Agents Classic** and points new forward-looking agent development toward **Amazon Bedrock AgentCore**. Existing Classic customers can continue using Classic memory, but new templates should evaluate AgentCore memory/session primitives when moving off Classic.
 
+## Protected mode (per-user document access)
+
+Set `KB_ACCESS_MODE=protected` to answer only from documents the **signed-in user** may read, using
+[Bedrock Managed Knowledge Base ACLs](https://docs.aws.amazon.com/bedrock/latest/userguide/kb-managed-acl.html).
+Default behavior is unchanged. This mode has its own private bucket, knowledge base, Cognito user pool and
+Terraform state (`terraform/protected`), never ingests the sample `docs/`, keeps no memory or conversations, and
+returns source filenames, not public URLs.
+
+```mermaid
+flowchart LR
+    U([User]) -->|"Cognito ID token"| G["API Gateway<br/>JWT authorizer"]
+    G -->|"validated claims"| L["Lambda<br/>(no S3 access)"]
+    L -->|"Retrieve + userContext = email claim"| K[("Managed Knowledge Base<br/>ACL-enabled S3 source")]
+    K -->|"only documents the user may read"| L
+    L -->|"excerpts only"| M["Nova (no tools)"]
+    P["KB resource policy"] -.->|"denies Retrieve to all but the Lambda role"| K
+```
+
+```bash
+export KB_ACCESS_MODE=protected
+bash scripts/provision.sh && bash scripts/deploy.sh   # then scripts/ingest_protected.py, scripts/test_protected_live.py
+bash scripts/teardown.sh                              # verifies nothing is left
+```
+
+**What it does not prove:** AWS does not authenticate the user inside the retrieval call. Bedrock filters by the email
+it is given, so the JWT authorizer, the function and the KB resource policy provide that binding. It is not file
+encryption, ACL changes apply after a sync (AWS: "a few minutes"; one tiny live test saw it enforced as soon as the sync completed), matching is by exact email
+(users only, no groups), and the acceptance gate mints test tokens rather than testing your app's sign-in. One live run passed (and the account root user is not restricted by the KB policy). See [guides/protected-mode.md](guides/protected-mode.md).
+
 ## GitHub Actions CI/CD
 
 `provision.sh` sets all required repo variables automatically if `gh` is authenticated. To set them manually:
