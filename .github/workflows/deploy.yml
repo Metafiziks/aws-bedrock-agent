@@ -19,24 +19,24 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
       - name: Sync documents to S3
         run: |
-          aws s3 sync docs/ s3://${{ vars.DOCS_BUCKET }}/docs/
+          aws s3 sync docs/ s3://${{ secrets.DOCS_BUCKET }}/docs/
 
       - name: Trigger Knowledge Base sync
         run: |
           JOB=$(aws bedrock-agent start-ingestion-job \
-            --knowledge-base-id ${{ vars.KNOWLEDGE_BASE_ID }} \
-            --data-source-id ${{ vars.DATA_SOURCE_ID }} \
+            --knowledge-base-id ${{ secrets.KNOWLEDGE_BASE_ID }} \
+            --data-source-id ${{ secrets.DATA_SOURCE_ID }} \
             --query "ingestionJob.ingestionJobId" --output text)
           echo "Ingestion job: $JOB"
           while true; do
             STATUS=$(aws bedrock-agent get-ingestion-job \
-              --knowledge-base-id ${{ vars.KNOWLEDGE_BASE_ID }} \
-              --data-source-id ${{ vars.DATA_SOURCE_ID }} \
+              --knowledge-base-id ${{ secrets.KNOWLEDGE_BASE_ID }} \
+              --data-source-id ${{ secrets.DATA_SOURCE_ID }} \
               --ingestion-job-id $JOB \
               --query "ingestionJob.status" --output text)
             echo "Status: $STATUS"
