@@ -403,3 +403,7 @@ To trigger manually:
 ```bash
 gh workflow run retrain-observability.yml
 ```
+
+## License
+
+[MIT](LICENSE).
